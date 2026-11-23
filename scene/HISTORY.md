@@ -1152,3 +1152,24 @@ styled from `--studio-surface`/`--studio-ink`, which Patchwork's dark theme
 doesn't move: it uses the scene's tokens now. Checked in Chrome with a dark
 theme's tokens: the root's scheme turns dark, the pill and selects with it.
 
+### 2026-11-24 — Params per document
+
+A source's params were its plugin metadata, the same for every doc, so a
+placement couldn't choose among its source's own parts (a drawing's pages
+and frames) nor take a doc's defaults (a CAD model's configurations). A
+source's module may now say `params(doc)`: specs merged by key with the
+metadata's (same key: in its place; new keys after), so what every doc has
+stays declared before anything loads. One resolver, `specsFor` in
+`src/build.js`: the build checks values against it, so a value the doc no
+longer takes falls back to the default; the render manager resolves it for
+the source as the build reads it (a fixed object's at its heads), keeps the
+same array while it doesn't change, and says it as the load state's
+`specs`; the stage flushes when that array changes, and the inspector's
+Settings draw from it (the metadata's until then; a hidden object never
+loads, so it keeps those) and show what build() gets; the standalone
+controls resolve it themselves. The debounce reads the doc's specs, so a
+doc's cheap param rebuilds fast. An enum option's `group` makes an
+`<optgroup>`. Whatever `params(doc)` returns is checked (a string key, a
+known kind, plain options; an enum needs one); one that throws is the
+metadata's. Staleness still compares stored values: a change to a doc's
+specs comes with a change to the doc.

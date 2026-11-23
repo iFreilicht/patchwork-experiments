@@ -20,6 +20,7 @@ import { fileURLToPath } from "node:url";
 import { resolveParents } from "../hierarchy.js";
 import { resolveGroups } from "../groups.js";
 import { sanitizeLayers } from "../layers.js";
+import { encodeGLB } from "../glb.js";
 
 const INSPECTOR = { meta: { id: "scene.inspector" }, module: inspector };
 
@@ -553,6 +554,32 @@ describe("scene.inspector: an object's parts and its documents, a row each (PLAN
     s.api("scene.undo").run({ ext: "scene.undo", command: "undo", target: null });
     await settle();
     expect([render.doc().params, render.doc().pinned]).toEqual([{}, true]);
+  });
+
+  it("the build's settings are the provider's for its source (params(doc), through the load state), drawn again as they change", async () => {
+    const repo = new FakeRepo();
+    const src = repo.add({ "@patchwork": { type: "paged" }, title: "the drawing", pages: ["p1", "p2"] });
+    const render = repo.add({ "@patchwork": { type: "scene-render" }, title: "x", parent: src.url, providerId: "t-paged", params: {}, glbUrl: null, builtFrom: null, builtAt: null, status: "idle", error: null, pinned: false });
+    await mount({ repo, objects: { it: object({ name: "It", sourceUrl: src.url, renderUrl: render.url, providerId: "t-paged" }) }, extensions: [{ meta: { id: "scene.undo" }, module: (await import("./undo.js")).default }] });
+    const show = (doc) => [{ key: "show", label: "Show", kind: "enum", default: doc.pages[0], options: doc.pages.map((p) => ({ value: p, label: p.toUpperCase(), group: "Pages" })) }];
+    getRegistry("scene:source").register({ type: "scene:source", id: "t-paged", name: "Paged thing", content: "built", params: [], load: async () => ({ params: show, build: async () => ({ kind: "glb", glb: encodeGLB({ meshes: [{ positions: [0, 0, 0, 1, 0, 0, 0, 1, 0] }] }) }) }) });
+    // (only a shown object loads: its settings come from the stage, which resolves them for its source)
+    await select("it");
+    await settle();
+    const settings = () => body().querySelector(".build-controls .field-group");
+    const options = () => [...body().querySelectorAll('.build-controls .param[data-key="show"] optgroup[label="Pages"] option')].map((o) => o.value);
+    expect(settings().hidden).toBe(false);
+    expect(options()).toEqual(["p1", "p2"]);
+    const pick = body().querySelector('.build-controls .param[data-key="show"] select');
+    expect(pick.value).toBe("p1");
+    pick.value = "p2";
+    pick.dispatchEvent(new Event("change"));
+    await settle();
+    expect(render.doc().params).toEqual({ show: "p2" });
+    src.change((d) => d.pages.push("p3"));
+    await settle();
+    expect(options()).toEqual(["p1", "p2", "p3"]);
+    expect(body().querySelector('.build-controls .param[data-key="show"] select').value).toBe("p2");
   });
 
   it("the header's Open is the selection's (./open.js): labelled as it says, run on a click", async () => {

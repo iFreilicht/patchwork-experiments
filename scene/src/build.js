@@ -66,6 +66,71 @@ export function dependencyKeyOf(impl, url, doc) {
   return null;
 }
 
+const PARAM_KINDS = new Set(["number", "integer", "boolean", "enum", "string", "color"]);
+const isScalar = (v) => typeof v === "string" || typeof v === "boolean" || (typeof v === "number" && Number.isFinite(v));
+
+/**
+ * One ParamSpec a source's params(doc) gave, as plain data (it lands in the
+ * stage's load state and in forms), or null if it isn't one: a non-empty
+ * string key and a known kind; an enum's options are `{ value, label?,
+ * group? }` with a string, number or boolean value, and an enum needs one.
+ */
+export function sanitizeSpec(spec) {
+  if (!spec || typeof spec !== "object" || typeof spec.key !== "string" || !spec.key || !PARAM_KINDS.has(spec.kind)) return null;
+  let plain;
+  try {
+    plain = JSON.parse(JSON.stringify(spec));
+  } catch {
+    return null;
+  }
+  if (spec.kind === "enum") {
+    plain.options = (Array.isArray(spec.options) ? spec.options : [])
+      .filter((o) => o && typeof o === "object" && isScalar(o.value))
+      .map((o) => ({ value: o.value, ...(typeof o.label === "string" ? { label: o.label } : {}), ...(typeof o.group === "string" && o.group ? { group: o.group } : {}) }));
+    if (!plain.options.length) return null;
+  }
+  return plain;
+}
+
+/**
+ * The ParamSpecs that hold for one source doc: the provider's own (its
+ * metadata's `params`), merged by key with what its module's optional,
+ * synchronous params(doc) says for this doc. One whose key is the
+ * metadata's takes that one's place; the others follow, in the order given.
+ * So a provider declares in its metadata what every doc has, and lets a doc
+ * fill in the rest: a choice of the doc's own parts, or defaults it keeps.
+ * The metadata's alone when there is no hook or no doc, or when it throws or
+ * gives no list; a spec that isn't one is dropped (sanitizeSpec), as is a
+ * repeated key. params(doc) must read only what fingerprint(doc) covers:
+ * otherwise its specs change while the build doesn't go stale.
+ * @param {{ id?: string, params?: object[], module?: { params?(doc: object): object[] } } | null} provider
+ *        the loaded provider ({ module }), or its metadata alone
+ * @param {object | null | undefined} doc  the source as build() reads it
+ * @returns {object[]}
+ */
+export function specsFor(provider, doc) {
+  const own = Array.isArray(provider?.params) ? provider.params : [];
+  const impl = provider?.module;
+  if (typeof impl?.params !== "function" || !doc) return own;
+  let given;
+  try {
+    given = impl.params(doc);
+  } catch (err) {
+    console.warn(`[scene] provider ${provider.id ?? "?"} params() threw; using its metadata's`, err);
+    return own;
+  }
+  if (!Array.isArray(given)) return own;
+  const extra = new Map();
+  for (const raw of given) {
+    const spec = sanitizeSpec(raw);
+    if (spec && !extra.has(spec.key)) extra.set(spec.key, spec);
+  }
+  if (!extra.size) return own;
+  const out = own.map((s) => extra.get(s?.key) ?? s);
+  for (const s of own) extra.delete(s?.key);
+  return [...out, ...extra.values()];
+}
+
 /**
  * A read-only handle on `handle`'s doc at `heads` (automerge-repo's
  * DocHandle.view), or null if it can't be had here: no view() on this handle,
@@ -208,7 +273,7 @@ export async function runBuild({ repo, renderHandle, sourceHandle, provider, dep
     const fingerprint = fingerprintOf(impl, source);
     const storedParams = JSON.parse(JSON.stringify(render.params ?? {}));
     const key = paramsKey(storedParams);
-    const params = effectiveParams(provider.params, storedParams);
+    const params = effectiveParams(specsFor(provider, source), storedParams);
     const providerVersion = providerVersionOf(provider.version);
     const builtFromBefore = stableStringify(render.builtFrom ?? null);
     const depsBefore = normalizeDeps(deps);

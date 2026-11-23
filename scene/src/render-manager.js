@@ -12,10 +12,10 @@
 // nothing and writes no render doc. The acting stage keeps them built.
 
 import { fileBytes } from "./file-content.js";
-import { dependenciesOf, dependencyKeyOf, errorMessage, fingerprintOf, knowsHeads, pinnedRepo, runBuild, validBounds, viewAt } from "./build.js";
+import { dependenciesOf, dependencyKeyOf, errorMessage, fingerprintOf, knowsHeads, pinnedRepo, runBuild, specsFor, validBounds, viewAt } from "./build.js";
 import { createDependencyWatcher } from "./deps.js";
 import { handleReadOnly } from "./stage/readonly.js";
-import { atFromBuilt, atKey, builtInputsKey, changedKeys, debounceFor, heldDeps, inputsKey, isContested, normalizeAt, sortedHeads, staleReason } from "./staleness.js";
+import { atFromBuilt, atKey, builtInputsKey, changedKeys, debounceFor, heldDeps, inputsKey, isContested, normalizeAt, sortedHeads, stableStringify, staleReason } from "./staleness.js";
 
 // How long to hold off building inputs a peer says (or the doc says) it is building.
 export const REMOTE_BUILD_GRACE_MS = 20_000;
@@ -106,6 +106,21 @@ export function createRenderManager({ repo, loadProvider, onState, onGLB, timers
     if (want === !!entry.announced) return;
     entry.announced = want;
     for (const url of [entry.sourceUrl, entry.renderUrl]) want ? announce.hold(url) : announce.release(url);
+  }
+
+  /**
+   * The provider's ParamSpecs for the source as build() reads it (build.js
+   * specsFor): its metadata's, merged with what its params(doc) says. The
+   * same array while they don't change, so a reader can compare them cheaply.
+   */
+  function specsOf(entry) {
+    const next = specsFor(entry.provider, sourceView(entry)?.doc());
+    const key = stableStringify(next);
+    if (key !== entry.specsKey) {
+      entry.specsKey = key;
+      entry.specs = next;
+    }
+    return entry.specs;
   }
 
   function emit(entry, patch = {}) {
@@ -259,6 +274,8 @@ export function createRenderManager({ repo, loadProvider, onState, onGLB, timers
       fixed: !!entry.at,
       at: entry.at,
       builtHeads: sortedHeads(render.builtFrom?.heads),
+      // the provider's ParamSpecs for this source, as last resolved (null: not yet)
+      specs: entry.specs ?? null,
     };
 
     if (!entry.sourceHandle) return emit(entry, { ...base, phase: "loading" });
@@ -276,6 +293,7 @@ export function createRenderManager({ repo, loadProvider, onState, onGLB, timers
     if (!sourceView(entry)) return emit(entry, { ...base, phase: "loading", versionMissing: true, stale: false, reason: null });
 
     refreshDeps(entry);
+    const specs = specsOf(entry);
     const source = sourceInfo(entry);
     const { reason, contested, held, behind } = judge(entry, render, source);
     const key = inputsKey(render, source);
@@ -286,6 +304,7 @@ export function createRenderManager({ repo, loadProvider, onState, onGLB, timers
     const unsure = reason === "deps" && depsPendingSince != null && !depsUnavailable.length;
     emit(entry, {
       ...base,
+      specs,
       phase: "ready",
       versionMissing: false,
       stale: !!reason && !unsure && !behind,
@@ -353,7 +372,7 @@ export function createRenderManager({ repo, loadProvider, onState, onGLB, timers
     clearTimer(entry, "depTimer");
 
     let delay = debounceFor(reason, {
-      specs: entry.provider.params ?? [],
+      specs,
       providerCost: entry.provider.cost,
       changed: reason === "params" ? changedKeys(parseKey(render.builtFrom?.paramsKey), render.params ?? {}) : [],
     });

@@ -44,6 +44,19 @@ getRegistry("scene:source").register({
   },
 });
 
+// a provider whose params(doc) offers the source's own pages to show
+getRegistry("scene:source").register({
+  type: "scene:source",
+  id: "paged",
+  content: "built",
+  name: "Paged thing",
+  supportedDatatypes: ["paged"],
+  params: [{ key: "size", kind: "number", default: 1 }],
+  async load() {
+    return { build, params: (doc) => [{ key: "show", label: "Show", kind: "enum", default: doc.pages[0], options: doc.pages.map((p) => ({ value: p, group: "Pages" })) }] };
+  },
+});
+
 describe("coerceParam", () => {
   it("coerces and clamps", () => {
     expect(coerceParam({ kind: "number", min: 0, max: 5 }, "7")).toBe(5);
@@ -147,6 +160,28 @@ describe("scene-render-controls, standalone", () => {
     await flush();
     expect(build).not.toHaveBeenCalled();
     expect(render.doc().glbUrl).toBeNull();
+  });
+
+  it("draws the provider's params for its source (params(doc)), following the source", async () => {
+    const repo = new FakeRepo();
+    const source = repo.add({ "@patchwork": { type: "paged" }, title: "p", pages: ["one", "two"] });
+    const render = repo.add(newRenderDoc({ title: "P", parent: source.url, providerId: "paged", params: { show: "gone" } }));
+    const element = document.createElement("div");
+    element.repo = repo;
+    document.body.append(element);
+    cleanup = Controls(render, element);
+    await flush();
+    expect([...element.querySelectorAll(".param")].map((r) => r.dataset.key)).toEqual(["size", "show"]);
+    const select = element.querySelector('.param[data-key="show"] select');
+    expect([...select.querySelectorAll("optgroup option")].map((o) => o.value)).toEqual(["one", "two"]);
+    expect(select.value).toBe("one"); // a value the specs no longer take shows as what build() gets
+    select.value = "two";
+    select.dispatchEvent(new Event("change"));
+    expect(render.doc().params.show).toBe("two");
+    source.change((d) => d.pages.push("three"));
+    await flush();
+    expect([...element.querySelectorAll('.param[data-key="show"] option')].map((o) => o.value)).toEqual(["one", "two", "three"]);
+    expect(element.querySelector('.param[data-key="show"] select').value).toBe("two");
   });
 
   it("cleans up", async () => {

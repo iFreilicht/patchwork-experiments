@@ -94,18 +94,27 @@ A provider lives in the package that owns the datatype, as metadata in its
   async load() { return (await import("./scene-source.js")).default } }
 
 ParamSpec = { key, label?, kind: "number"|"integer"|"boolean"|"enum"|"string"|"color", default,
-              min?, max?, step?, log?, options?: [{ value, label }], cost?: "cheap"|"expensive" }
+              min?, max?, step?, log?, options?: [{ value, label?, group? }], cost?: "cheap"|"expensive" }
 SourceImpl = {
   build({ doc, handle, url, params, repo }): Promise<{ kind: "glb", glb: Uint8Array,
         meta?: { bounds?: { min, max }, notes?: string } }>,   // must not write the source
   fingerprint?(doc): string,              // changes iff something build() reads changes
   dependencies?(doc): AutomergeUrl[],     // other docs build() reads; rebuilt when they change
-  fingerprintDependency?(url, doc): string | null }
+  fingerprintDependency?(url, doc): string | null,
+  params?(doc): ParamSpec[] }             // this doc's own params, merged with the metadata's
 ```
 
 - `"built"`: `build()` makes a GLB, kept in the object's own `scene-render`
   doc and rebuilt when the source, params, dependencies or `version` change.
   `params` arrive with defaults filled in and clamped to their spec.
+- `params(doc)` gives specs that depend on the source: a choice of its own
+  parts, or defaults it keeps. Merged by key with the metadata's `params`
+  (same key: in its place; new keys after), so the metadata keeps what every
+  doc has. Synchronous and pure; read only what `fingerprint` covers. A value
+  the doc's specs no longer take falls back to their default. An option's
+  `group` puts it under an `<optgroup>`. Specs that don't depend on the doc
+  belong in the metadata: before the source loads, and for a hidden object
+  (which doesn't load), the metadata's are all there is.
 - `"file"`: the source doc already is a GLB file. No render doc, no `load()`.
 - A render doc records `glbUrl` and what it was `builtFrom`; new bytes make a
   new immutable GLB file doc (`newRenderDoc` in `src/datatype.js`, staleness

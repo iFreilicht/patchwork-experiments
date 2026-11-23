@@ -65,7 +65,7 @@ import { fromUnits, roundForDisplay, toUnits } from "../units.js";
 import { normalizeTransform } from "../transform.js";
 import { documentBox, documentView } from "../embed.js";
 import { DND_MIME, SECTION_MIME, URLS_MIME, docKey } from "../dnd.js";
-import { atKey, normalizeAt } from "../staleness.js";
+import { atKey, effectiveParams, normalizeAt, stableStringify } from "../staleness.js";
 import { createParamForm } from "../param-form.js";
 import { REBUILD_EVENT } from "../controls-tool.js";
 import { providerOf } from "./handles.js";
@@ -563,35 +563,52 @@ function create(api) {
    */
   function buildControlsView(id, o) {
     const provider = providerOf(api.registry?.("scene:source"), o.providerId);
-    const specs = Array.isArray(provider?.params) ? provider.params : [];
+    // the metadata's, until the stage has resolved them for this source (load state's `specs`)
+    const ownSpecs = Array.isArray(provider?.params) ? provider.params : [];
     const rebuild = el("button", { type: "button", class: "button rebuild", title: "Build it again from its source now" }, "Rebuild");
     const summary = el("span", { class: "build-summary" });
     const pinBox = el("input", { type: "checkbox", class: "pinned" });
     const params = el("div", { class: "build-params" });
+    const settings = el("div", { class: "field-group", hidden: true }, el("span", { class: "group-label", title: "How this placement is built: its own settings, not its source's" }, "Settings"), params);
     const section = el(
       "div",
       { class: "build-controls" },
       el("div", { class: "cluster" }, summary, rebuild, el("label", { class: "toggle", title: "Don't rebuild on its own when its source changes" }, pinBox, " Pinned")),
-      specs.length ? el("div", { class: "field-group" }, el("span", { class: "group-label", title: "How this placement is built: its own settings, not its source's" }, "Settings"), params) : null,
+      settings,
     );
     let handle = null;
     let off = null;
     let dead = false;
+    let specs = [];
+    let specsKey = null;
+    let form = null;
     const edit = (fn, label) => handle && editor(here).edit(fn, { handle, label });
-    const form = specs.length
-      ? createParamForm(params, specs, (k, v) =>
-          edit((d) => {
-            if (!d.params) d.params = {};
-            d.params[k] = v;
-          }, String(specs.find((sp) => sp.key === k)?.label ?? k)),
-        )
-      : null;
     const sync = () => {
       const d = handle?.doc();
       if (!d) return;
       pinBox.checked = !!d.pinned;
-      form?.update(d.params ?? {});
+      // what build() gets: a value the specs no longer take shows as what it falls back to
+      form?.update(effectiveParams(specs, d.params ?? {}));
     };
+    /** The settings' fields, drawn again only when the specs change (a provider's params(doc) follows its source). */
+    const setSpecs = (next) => {
+      const key = stableStringify(next);
+      if (key === specsKey) return;
+      specsKey = key;
+      specs = next;
+      form?.dispose();
+      settings.hidden = !specs.length;
+      form = specs.length
+        ? createParamForm(params, specs, (k, v) =>
+            edit((d) => {
+              if (!d.params) d.params = {};
+              d.params[k] = v;
+            }, String(specs.find((sp) => sp.key === k)?.label ?? k)),
+          )
+        : null;
+      sync();
+    };
+    setSpecs(ownSpecs);
     pinBox.addEventListener("change", () => edit((d) => void (d.pinned = pinBox.checked), pinBox.checked ? "Pin" : "Unpin"));
     rebuild.addEventListener("click", () => section.dispatchEvent(new CustomEvent(REBUILD_EVENT, { detail: { renderUrl: o.renderUrl }, bubbles: true, composed: true, cancelable: true })));
     Promise.resolve(o.renderUrl ? here.repo?.find(o.renderUrl) : null)
@@ -609,6 +626,7 @@ function create(api) {
       summarize(load) {
         const text = buildSummary(load, here.now()) ?? "";
         if (summary.textContent !== text) summary.textContent = text;
+        setSpecs(Array.isArray(load?.specs) ? load.specs : ownSpecs);
       },
       dispose() {
         dead = true;
@@ -950,7 +968,9 @@ function create(api) {
 
   const contentKey = (id) => {
     const c = id ? here.content(id) : null;
-    return c ? `${c.loaded}|${c.stats?.triangles ?? ""}|${c.stats?.drawCalls ?? ""}` : "";
+    // the build's settings follow its source (a provider's params(doc)), through the load state
+    const specs = id ? here.loadState?.(id)?.specs : null;
+    return `${c ? `${c.loaded}|${c.stats?.triangles ?? ""}|${c.stats?.drawCalls ?? ""}` : ""}${specs ? `|${stableStringify(specs)}` : ""}`;
   };
 
   /** Bring the panel up to date; cheap when nothing it shows changed. */

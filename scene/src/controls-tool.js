@@ -15,9 +15,9 @@
 
 import css from "./styles.css?inline";
 import { createParamForm } from "./param-form.js";
-import { dependenciesOf, dependencyKeyOf, errorMessage, fingerprintOf, runBuild, viewAt } from "./build.js";
+import { dependenciesOf, dependencyKeyOf, errorMessage, fingerprintOf, runBuild, specsFor, viewAt } from "./build.js";
 import { createDependencyWatcher } from "./deps.js";
-import { normalizeAt, staleReason } from "./staleness.js";
+import { effectiveParams, normalizeAt, staleReason } from "./staleness.js";
 
 export const REBUILD_EVENT = "scene:rebuild";
 export const CONTEXT_EVENT = "scene:render-context";
@@ -83,8 +83,9 @@ export default function SceneRenderControls(handle, element) {
     at = normalizeAt(detail.at);
   }
 
-  function specs() {
-    return providerMeta?.params ?? [];
+  /** The provider's ParamSpecs for the source as a build reads it (`src`): the metadata's until both are loaded. */
+  function specs(src) {
+    return specsFor(provider ?? providerMeta, src?.doc());
   }
 
   async function resolveProvider() {
@@ -166,7 +167,7 @@ export default function SceneRenderControls(handle, element) {
     notice.hidden = !missing;
     notice.textContent = missing ? `The “${doc.providerId}” provider isn't installed, so these params can't be edited here.` : "";
 
-    const nextSpecs = specs();
+    const nextSpecs = specs(src);
     const key = JSON.stringify(nextSpecs);
     if (!form || form.key !== key) {
       form?.dispose();
@@ -178,7 +179,8 @@ export default function SceneRenderControls(handle, element) {
       );
       form.key = key;
     }
-    form.update(doc.params ?? {});
+    // what build() gets: a value the specs no longer take shows as what it falls back to
+    form.update(effectiveParams(nextSpecs, doc.params ?? {}));
     if (!nextSpecs.length && !missing) {
       $(".params").dataset.empty = "";
     } else {

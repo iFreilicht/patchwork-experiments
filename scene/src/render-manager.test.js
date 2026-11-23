@@ -1164,3 +1164,87 @@ describe("render manager: fixed dependencies", () => {
     expect(t.states.at(-1)).toMatchObject({ stale: false });
   });
 });
+
+describe("render manager: params per document (a provider's params(doc))", () => {
+  // the provider lists a page to show, from the source: a choice of the doc's own parts
+  const pages = (doc) => [{ key: "show", kind: "enum", label: "Show", cost: "cheap", default: doc.pages?.[0] ?? "none", options: (doc.pages ?? ["none"]).map((p) => ({ value: p, group: "Pages" })) }];
+
+  it("build() gets the doc's specs: its default, and a value it no longer takes falls back to it", async () => {
+    const t = setup();
+    t.source.change((d) => (d.pages = ["a", "b"]));
+    t.impl.params = pages;
+    await t.mgr.track("o1", { sourceUrl: t.source.url, renderUrl: t.render.url });
+    await t.timers.advance(0);
+    expect(t.impl.build.mock.calls[0][0].params).toEqual({ size: 1, show: "a" });
+    t.render.change((d) => (d.params.show = "b"));
+    await t.timers.advance(5000);
+    expect(t.impl.build.mock.calls.at(-1)[0].params).toEqual({ size: 1, show: "b" });
+    t.source.change((d) => (d.pages = ["c"]));
+    await t.timers.advance(5000);
+    expect(t.impl.build.mock.calls.at(-1)[0].params).toEqual({ size: 1, show: "c" });
+    expect(t.render.doc().params).toEqual({ size: 1, show: "b" }); // what was chosen stays as chosen
+  });
+
+  it("says the specs in its state, the same array until they change, following the source", async () => {
+    const t = setup();
+    t.source.change((d) => (d.pages = ["a", "b"]));
+    t.impl.params = pages;
+    await t.mgr.track("o1", { sourceUrl: t.source.url, renderUrl: t.render.url });
+    await t.timers.advance(0);
+    const first = t.states.at(-1).specs;
+    expect(first.map((s) => s.key)).toEqual(["size", "show"]);
+    expect(first[0]).toBe(t.provider.params[0]);
+    expect(first[1].options).toEqual([
+      { value: "a", group: "Pages" },
+      { value: "b", group: "Pages" },
+    ]);
+    t.source.change((d) => (d.size = 3));
+    await t.timers.advance(5000);
+    expect(t.states.at(-1).specs).toBe(first);
+    t.source.change((d) => d.pages.push("c"));
+    await t.timers.advance(5000);
+    expect(t.states.at(-1).specs[1].options.map((o) => o.value)).toEqual(["a", "b", "c"]);
+  });
+
+  it("is the metadata's alone without params(doc), and when it throws", async () => {
+    const t = setup();
+    await t.mgr.track("o1", { sourceUrl: t.source.url, renderUrl: t.render.url });
+    await t.timers.advance(0);
+    expect(t.states.at(-1).specs).toEqual(t.provider.params);
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const u = setup();
+    u.impl.params = () => {
+      throw new Error("boom");
+    };
+    await u.mgr.track("o1", { sourceUrl: u.source.url, renderUrl: u.render.url });
+    await u.timers.advance(0);
+    expect(u.states.at(-1).specs).toEqual(u.provider.params);
+    expect(u.impl.build.mock.calls[0][0].params).toEqual({ size: 1 });
+    warn.mockRestore();
+  });
+
+  it("a fixed object's specs are its source's at the fixed heads", async () => {
+    const t = setup();
+    t.source.change((d) => (d.pages = ["a"]));
+    const h1 = t.source.heads();
+    t.source.change((d) => d.pages.push("b"));
+    t.impl.params = pages;
+    await t.mgr.track("o1", { sourceUrl: t.source.url, renderUrl: t.render.url, at: { heads: h1 } });
+    await t.timers.advance(0);
+    expect(t.states.at(-1).specs[1].options.map((o) => o.value)).toEqual(["a"]);
+    expect(t.impl.build.mock.calls[0][0].params.show).toBe("a");
+  });
+
+  it("debounces an edit of a doc's own param by its cost", async () => {
+    const t = setup();
+    t.source.change((d) => (d.pages = ["a", "b"]));
+    t.impl.params = pages;
+    await t.mgr.track("o1", { sourceUrl: t.source.url, renderUrl: t.render.url });
+    await t.timers.advance(0);
+    t.render.change((d) => (d.params.show = "b"));
+    await t.timers.advance(149);
+    expect(t.impl.build).toHaveBeenCalledTimes(1);
+    await t.timers.advance(10);
+    expect(t.impl.build).toHaveBeenCalledTimes(2);
+  });
+});

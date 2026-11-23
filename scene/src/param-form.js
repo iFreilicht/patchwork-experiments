@@ -46,11 +46,24 @@ export function createParamForm(container, specs, onChange) {
       set = (v) => (input.checked = !!v);
     } else if (spec.kind === "enum") {
       const select = document.createElement("select");
+      // a run of options with the same `group` is one <optgroup>, labelled by it
+      let group = null;
+      let parent = select;
       for (const o of spec.options ?? []) {
+        const g = typeof o.group === "string" && o.group ? o.group : null;
+        if (g !== group) {
+          group = g;
+          parent = select;
+          if (g) {
+            parent = document.createElement("optgroup");
+            parent.label = g;
+            select.append(parent);
+          }
+        }
         const opt = document.createElement("option");
         opt.value = String(o.value);
         opt.textContent = o.label ?? String(o.value);
-        select.append(opt);
+        parent.append(opt);
       }
       select.addEventListener("change", () => commit(select.value));
       row.append(select);

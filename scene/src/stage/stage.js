@@ -446,6 +446,9 @@ export function createStage({ handle: given, view, n, path = [], frame = () => n
       // the provider its render doc names is one the scene calls for (packages)
       if (said(was) !== said({ ...s, content: "built" }) || was?.providerId !== s.providerId) packages.check();
       objState.set(id, { ...s, content: "built" });
+      // its settings changed with its source (a provider's params(doc); the manager keeps the same
+      // array while they don't): what reads them (the inspector) updates, as after a GLB arrives
+      if (was && was.specs !== s.specs) contentDirty = true;
       // a render doc's own bounds stand in until its GLB loads (unless the scene has a hint)
       if (String(before?.min) + String(before?.max) !== String(s.bounds?.min) + String(s.bounds?.max)) {
         const o = doc()?.objects?.[id];
