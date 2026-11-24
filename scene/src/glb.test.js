@@ -190,3 +190,64 @@ describe("v2 additions", () => {
     expect(blend.extensionsUsed).toBeUndefined();
   });
 });
+
+describe("v4 additions: uvs and textures", () => {
+  // a 1×1 PNG (one transparent pixel): what the bytes are doesn't matter to the encoder
+  const png = Uint8Array.from(atob("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg=="), (c) => c.charCodeAt(0));
+  const uvs = [0, 1, 1, 1, 1, 0, 0, 0];
+
+  it("writes TEXCOORD_0, and the image, sampler and texture a material's baseColorTexture names", () => {
+    const { json, bin } = parseGLB(encodeGLB({ meshes: [{ name: "sheet", ...quad(), uvs, texture: { image: png, mimeType: "image/png" }, blend: true }] }));
+    const prim = json.meshes[0].primitives[0];
+    const uv = json.accessors[prim.attributes.TEXCOORD_0];
+    expect([uv.type, uv.count, uv.componentType]).toEqual(["VEC2", 4, 5126]);
+    const mat = json.materials[prim.material];
+    expect(mat.pbrMetallicRoughness.baseColorTexture).toEqual({ index: 0 });
+    expect(mat.pbrMetallicRoughness.baseColorFactor).toEqual([1, 1, 1, 1]);
+    expect(mat.alphaMode).toBe("BLEND");
+    expect(json.textures).toEqual([{ source: 0, sampler: 0 }]);
+    expect(json.samplers).toEqual([{ magFilter: 9729, minFilter: 9987, wrapS: 33071, wrapT: 33071 }]);
+    expect(json.images).toHaveLength(1);
+    const img = json.images[0];
+    expect(img.mimeType).toBe("image/png");
+    const view = json.bufferViews[img.bufferView];
+    expect(view.target).toBeUndefined(); // an image's view is no vertex or index buffer
+    expect(view.byteOffset % 4).toBe(0);
+    expect([...bin.subarray(view.byteOffset, view.byteOffset + view.byteLength)]).toEqual([...png]);
+  });
+
+  it("stores an image given to several primitives once, and a sampler per filter and wrap", () => {
+    const { json } = parseGLB(
+      encodeGLB({
+        meshes: [
+          { ...quad(), uvs, texture: { image: png, mimeType: "image/png" } },
+          { ...quad(), uvs, texture: { image: png, mimeType: "image/png" } },
+          { ...quad(), uvs, texture: { image: png, mimeType: "image/png", smooth: false, repeat: true } },
+        ],
+      }),
+    );
+    expect(json.images).toHaveLength(1);
+    expect(json.samplers).toEqual([
+      { magFilter: 9729, minFilter: 9987, wrapS: 33071, wrapT: 33071 },
+      { magFilter: 9728, minFilter: 9984, wrapS: 10497, wrapT: 10497 },
+    ]);
+    expect(json.textures).toEqual([
+      { source: 0, sampler: 0 },
+      { source: 0, sampler: 1 },
+    ]);
+    expect(json.materials).toHaveLength(2);
+  });
+
+  it("refuses a texture without uvs, uvs of the wrong length, and an image type glTF's core hasn't", () => {
+    expect(() => encodeGLB({ meshes: [{ ...quad(), texture: { image: png, mimeType: "image/png" } }] })).toThrow(/texture but no uvs/);
+    expect(() => encodeGLB({ meshes: [{ ...quad(), uvs: [0, 0, 1, 1] }] })).toThrow(/uvs has 4 values, expected 8/);
+    expect(() => encodeGLB({ meshes: [{ ...quad(), uvs, texture: { image: png, mimeType: "image/svg+xml" } }] })).toThrow(/image\/png or image\/jpeg/);
+    expect(() => encodeGLB({ meshes: [{ ...quad(), uvs, texture: { image: new Uint8Array(), mimeType: "image/png" } }] })).toThrow(/non-empty/);
+  });
+
+  it("writes no textures, images or samplers when nothing has a texture", () => {
+    const { json } = parseGLB(encodeGLB({ meshes: [{ ...quad(), uvs }] }));
+    expect([json.textures, json.images, json.samplers]).toEqual([undefined, undefined, undefined]);
+    expect(json.meshes[0].primitives[0].material).toBeUndefined();
+  });
+});

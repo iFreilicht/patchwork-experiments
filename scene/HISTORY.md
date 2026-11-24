@@ -1173,3 +1173,14 @@ doc's cheap param rebuilds fast. An enum option's `group` makes an
 known kind, plain options; an enum needs one); one that throws is the
 metadata's. Staleness still compares stored values: a change to a doc's
 specs comes with a change to the doc.
+
+### 2026-11-24 — Textures in the kit's GLB encoder (glb.js v4)
+
+A picture on a surface (a drawing's page on its plane, CAD's canvases) needs
+a texture, which the encoder couldn't write. A primitive now takes `uvs`
+(TEXCOORD_0, (0, 0) the image's top left) and `texture: { image, mimeType,
+smooth?, repeat? }`, a PNG or JPEG (glTF's core types) stored in the BIN
+chunk and used as the base colour; one image given twice is stored once. A
+PNG's alpha shows with `blend`. The scene's loader (GLTFLoader) draws them
+already, and `prepareMaterials` keeps an authored material's map. Copied to
+every kit copy (`check-kit.mjs --fix`).

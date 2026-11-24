@@ -1,5 +1,5 @@
 /**
- * glb.js — a dependency-free glTF 2.0 binary (GLB) encoder.  [kit: glb.js v3]
+ * glb.js — a dependency-free glTF 2.0 binary (GLB) encoder.  [kit: glb.js v4]
  *
  * COPY THIS FILE into your package; do not import it across packages. It has no
  * imports and no DOM use, so it runs anywhere (main thread, worker, node).
@@ -10,6 +10,8 @@
  * (KHR_materials_unlit), `blend` (alphaMode BLEND), and `asset.extras.units`,
  * so a consumer reading the GLB outside a scene knows it is in metres.
  * v3 (from terrain's fork): `copyright` (asset.copyright), written only when given.
+ * v4: `uvs` (TEXCOORD_0) and `texture` (a PNG or JPEG as the base colour), so a
+ * picture can lie on a surface: a drawing on a plane, a decal on a face.
  *
  * ─── API ──────────────────────────────────────────────────────────────────────
  *
@@ -26,9 +28,6 @@
  *
  *   Mesh = {
  *     name?: string,
- *     sameAs?: number,              // an earlier mesh's index: its primitives again, through
- *                                   // accessors of their own on the same buffer views (no bytes;
- *                                   // three's GLTFLoader then makes it a geometry of its own)
  *     primitives: Primitive[],      // or put Primitive fields directly on the mesh
  *                                   // for the one-primitive shorthand
  *     extras?: object,
@@ -40,6 +39,8 @@
  *     colors?:   Float32Array | number[] | { array, itemSize: 3 | 4 },
  *                                           // COLOR_0, LINEAR rgb(a) 0..1 per vertex
  *                                           // (a bare array is rgb)
+ *     uvs?:      Float32Array | number[],   // uv uv …  (TEXCOORD_0), per vertex; (0, 0) is
+ *                                           // the image's top left, (1, 1) its bottom right
  *     indices?:  Uint32Array | Uint16Array | number[],  // stored as u16 when they fit
  *     mode?:     number,                    // MODE.TRIANGLES (default), LINES, LINE_STRIP…
  *     attributes?: { [name]: Float32Array | number[] | { array, itemSize } },
@@ -54,7 +55,18 @@
  *     doubleSided?: boolean,                // default true
  *     unlit?: boolean,                      // KHR_materials_unlit
  *     blend?: boolean,                      // alphaMode BLEND, e.g. for COLOR_0 alpha
+ *     texture?: Texture,                    // baseColorTexture, sampled at `uvs` (needed);
+ *                                           // multiplied by `color` (default white)
  *   }
+ *
+ *   Texture = {
+ *     image: Uint8Array,                    // the file's bytes, stored in the BIN chunk
+ *     mimeType: "image/png" | "image/jpeg", // glTF's core image types
+ *     smooth?: boolean,                     // default true: linear, mipmapped; false: nearest
+ *     repeat?: boolean,                     // default false: clamped to the edge
+ *   }
+ *   One image given to several primitives (the same Uint8Array) is stored once.
+ *   A PNG's alpha shows only with `blend` (BLEND).
  *
  *   Node = {
  *     name?: string,
@@ -103,7 +115,15 @@ const ARRAY_BUFFER = 34962;
 const ELEMENT_ARRAY_BUFFER = 34963;
 const TYPE_BY_SIZE = { 1: "SCALAR", 2: "VEC2", 3: "VEC3", 4: "VEC4" };
 
-const PRIMITIVE_KEYS = ["positions", "normals", "colors", "indices", "mode", "attributes", "color"];
+const PRIMITIVE_KEYS = ["positions", "normals", "colors", "uvs", "indices", "mode", "attributes", "color", "texture"];
+const IMAGE_TYPES = new Set(["image/png", "image/jpeg"]);
+// sampler filters and wraps (WebGL enums, as glTF names them)
+const NEAREST = 9728;
+const LINEAR = 9729;
+const LINEAR_MIPMAP_LINEAR = 9987;
+const NEAREST_MIPMAP_NEAREST = 9984;
+const REPEAT = 10497;
+const CLAMP_TO_EDGE = 33071;
 
 /** sRGB channel (0..1) → linear. */
 export function srgbToLinear(c) {
@@ -252,15 +272,49 @@ export function encodeGLB(scene) {
   const accessors = [];
   const materials = [];
   const materialKeys = new Map();
+  const images = [];
+  const imageIndex = new Map(); // the image's bytes → its index: one image given twice is stored once
+  const samplers = [];
+  const samplerKeys = new Map();
+  const textures = [];
+  const textureKeys = new Map();
+
+  /** The glTF texture for a primitive's `texture`, its image and sampler stored once each. */
+  const texture = (tex, where) => {
+    if (!tex || typeof tex !== "object") throw new Error(`glb: ${where} texture must be { image, mimeType }`);
+    if (!IMAGE_TYPES.has(tex.mimeType)) throw new Error(`glb: ${where} texture mimeType must be image/png or image/jpeg`);
+    if (!(tex.image instanceof Uint8Array) || tex.image.byteLength === 0) throw new Error(`glb: ${where} texture image must be a non-empty Uint8Array`);
+    let image = imageIndex.get(tex.image);
+    if (image === undefined) {
+      image = images.length;
+      images.push({ bufferView: bin.add(tex.image), mimeType: tex.mimeType });
+      imageIndex.set(tex.image, image);
+    }
+    const smooth = tex.smooth ?? true;
+    const wrap = tex.repeat ? REPEAT : CLAMP_TO_EDGE;
+    const s = { magFilter: smooth ? LINEAR : NEAREST, minFilter: smooth ? LINEAR_MIPMAP_LINEAR : NEAREST_MIPMAP_NEAREST, wrapS: wrap, wrapT: wrap };
+    const sKey = JSON.stringify(s);
+    if (!samplerKeys.has(sKey)) {
+      samplerKeys.set(sKey, samplers.length);
+      samplers.push(s);
+    }
+    const tKey = `${image}|${samplerKeys.get(sKey)}`;
+    if (!textureKeys.has(tKey)) {
+      textureKeys.set(tKey, textures.length);
+      textures.push({ source: image, sampler: samplerKeys.get(sKey) });
+    }
+    return textureKeys.get(tKey);
+  };
   const gltfMeshes = [];
   const meshRemap = new Map(); // input mesh index → output mesh index
 
-  const material = (prim) => {
+  const material = (prim, where) => {
     const color = toColor(prim.color);
-    if (!color && prim.metallic == null && prim.roughness == null && !prim.unlit && !prim.blend) return undefined;
+    if (!color && prim.metallic == null && prim.roughness == null && !prim.unlit && !prim.blend && !prim.texture) return undefined;
     const m = {
       pbrMetallicRoughness: {
         baseColorFactor: color ?? [1, 1, 1, 1],
+        ...(prim.texture ? { baseColorTexture: { index: texture(prim.texture, where) } } : {}),
         metallicFactor: prim.metallic ?? 0,
         roughnessFactor: prim.roughness ?? 0.8,
       },
@@ -276,24 +330,7 @@ export function encodeGLB(scene) {
     return materialKeys.get(key);
   };
 
-  const outPrims = new Map(); // input mesh index → its primitives as written
   scene.meshes.forEach((rawMesh, mi) => {
-    // the same geometry as an earlier mesh, through accessors of its own on the same bytes: a loader that
-    // caches geometry by accessor (three's GLTFLoader) makes it a geometry of its own, so a renderer that
-    // instances by geometry draws its nodes apart (a tile of a forest is culled as a tile), at no bytes
-    if (rawMesh && Number.isInteger(rawMesh.sameAs)) {
-      const src = outPrims.get(rawMesh.sameAs);
-      if (rawMesh.sameAs >= mi || !src) throw new Error(`glb: mesh ${mi} is the same as mesh ${rawMesh.sameAs}, which isn't an earlier mesh with geometry`);
-      const copy = (a) => (accessors.push({ ...accessors[a] }), accessors.length - 1);
-      const prims = src.map((pr) => ({ ...pr, attributes: Object.fromEntries(Object.entries(pr.attributes).map(([k, a]) => [k, copy(a)])), ...(pr.indices != null ? { indices: copy(pr.indices) } : {}) }));
-      outPrims.set(mi, prims);
-      const m = { primitives: prims };
-      if (rawMesh.name) m.name = String(rawMesh.name);
-      if (rawMesh.extras) m.extras = rawMesh.extras;
-      meshRemap.set(mi, gltfMeshes.length);
-      gltfMeshes.push(m);
-      return;
-    }
     const mesh = normalizeMesh(rawMesh, mi);
     const label = `mesh ${mi}${mesh.name ? ` (${mesh.name})` : ""}`;
     const prims = [];
@@ -365,6 +402,16 @@ export function encodeGLB(scene) {
         attributes[name] = accessors.length - 1;
       }
 
+      if (prim.uvs) {
+        const uvs = asFloat32(prim.uvs, `${where} uvs`);
+        if (uvs.length !== count * 2) throw new Error(`glb: ${where} uvs has ${uvs.length} values, expected ${count * 2}`);
+        checkFinite(uvs, `${where} uvs`);
+        accessors.push({ bufferView: bin.add(uvs, ARRAY_BUFFER), componentType: FLOAT, count, type: "VEC2" });
+        attributes.TEXCOORD_0 = accessors.length - 1;
+      } else if (prim.texture) {
+        throw new Error(`glb: ${where} has a texture but no uvs`);
+      }
+
       const out = { attributes, mode: prim.mode ?? MODE.TRIANGLES };
       if (prim.indices) {
         const src = prim.indices;
@@ -387,12 +434,11 @@ export function encodeGLB(scene) {
           out.indices = accessors.length - 1;
         }
       }
-      const mat = material(prim);
+      const mat = material(prim, where);
       if (mat !== undefined) out.material = mat;
       prims.push(out);
     });
     if (prims.length === 0) return; // empty mesh: dropped
-    outPrims.set(mi, prims);
     const m = { primitives: prims };
     if (mesh.name) m.name = String(mesh.name);
     if (mesh.extras) m.extras = mesh.extras;
@@ -437,6 +483,7 @@ export function encodeGLB(scene) {
   if (nodes.length) gltf.nodes = nodes;
   if (gltfMeshes.length) gltf.meshes = gltfMeshes;
   if (materials.length) gltf.materials = materials;
+  if (textures.length) Object.assign(gltf, { textures, images, samplers });
   if (materials.some((m) => m.extensions?.KHR_materials_unlit)) gltf.extensionsUsed = ["KHR_materials_unlit"];
   if (accessors.length) gltf.accessors = accessors;
   const binBytes = bin.bytes();
