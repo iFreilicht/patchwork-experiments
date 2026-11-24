@@ -11,6 +11,8 @@
 //   material the file authored keeps its colour, named or not.
 // - Meshes that reuse one (geometry, material) pair inside a GLB collapse into
 //   one InstancedMesh: one draw call instead of one per node.
+// - A line whose material says `extras.lineWidth` gets a wide copy to draw it
+//   (./wide-lines.js), which the viewport shows outside the content.
 
 import { Box3, BufferAttribute, DoubleSide, InstancedMesh, Matrix4 } from "three";
 import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
@@ -19,6 +21,7 @@ import { toArrayBuffer } from "./file-content.js";
 import { placeConnector, sanitizeConnectors } from "./carry-rules.js";
 import { nodeLayer, sanitizeLayers } from "./layers.js";
 import { ALPHA_MIN } from "./alpha-pick.js";
+import { widenLines } from "./wide-lines.js";
 
 let loader = null;
 
@@ -310,7 +313,7 @@ export function localParts(root) {
 
 /**
  * Bytes → display-ready content.
- * @returns {Promise<{ content, materials: object[], legend: object | null, extras: object, layers: ReturnType<typeof sanitizeLayers>, box: Box3 | null, parts: { box, matrix, layer }[],
+ * @returns {Promise<{ content, materials: object[], wide: { line, wide }[], legend: object | null, extras: object, layers: ReturnType<typeof sanitizeLayers>, box: Box3 | null, parts: { box, matrix, layer }[],
  *   stats: { drawCalls: number, nodes: number, instanced: number, triangles: number, dequantized: number } }>}
  */
 export async function prepareGLB(bytes) {
@@ -324,9 +327,12 @@ export async function prepareGLB(bytes) {
   const snap = findSnapPoints(content);
   stampLayers(content);
   const inst = collapseInstances(content);
+  // (lines aren't instanced, so their copies are made after)
+  const wide = widenLines(content);
   return {
     content,
     materials,
+    wide,
     snap,
     legend: findLegend(content),
     extras,

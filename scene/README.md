@@ -199,6 +199,12 @@ CONVENTIONS.md.
   saturated ones keep theirs (`src/scheme-recolour.js`). For drawings and
   diagrams, not photos. The kit's encoder writes it as a primitive's
   `materialExtras`.
+- **Wide lines:** WebGL draws lines one pixel wide. A line primitive whose
+  material's `extras.lineWidth` gives a width in CSS pixels (at most 32) is
+  drawn that wide (`src/wide-lines.js`), and the GLB's surfaces are pushed
+  back in depth a little, so lines on them show whole. It picks, snaps and
+  hides with its layer as any line. The kit's encoder writes it as a
+  primitive's `materialExtras`, e.g. `{ lineWidth: 1.5 }`.
 - **Legend:** `extras.legend = { title, unit, min, max, stops }` on a mesh,
   2–32 `#rrggbb` stops, draws a colour bar.
 

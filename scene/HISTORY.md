@@ -1257,3 +1257,18 @@ its own copy of three's: the scene's renderer draws only objects made with
 the scene's three.js. patchwork-cad's editor copied the three files and
 rebuilt them over `api.THREE`. Both apis now carry the viewport's own as
 `api.wideLines` beside `api.THREE` (`src/wide-lines.js`).
+
+### 2026-11-24 — A GLB's wide lines
+
+A CAD model's edges and sketches, built into a GLB, were drawn one pixel
+wide, thinner than its editor draws them and hard to see on a busy scene.
+A line primitive can now ask for a width: its material's `extras.lineWidth`,
+in CSS pixels, so that every other GLB's lines stay as they are. Swapping the
+line for a `LineSegments2` would have broken what reads the content: it is a
+mesh of a template quad, which vertex snapping, the near plane's clearance,
+shadows, the pick BVHs and Dimensions would take for surfaces. So the line
+stays, does all it did and draws nothing (its material's `visible`), and a
+wide copy outside the content (the viewport's `wideGroup`) draws it, taking
+its line's world matrix as it is drawn and its visibility, colour and
+opacity every frame. Lines lying on the GLB's surfaces would be half buried
+in them: those surfaces get the polygon offset CAD viewers give theirs.

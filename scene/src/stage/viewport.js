@@ -38,7 +38,7 @@ import {
 } from "three";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 import { RoomEnvironment } from "three/examples/jsm/environments/RoomEnvironment.js";
-import { LineMaterial, LineSegments2, LineSegmentsGeometry } from "../wide-lines.js";
+import { disposeWide, followLine, LineMaterial, LineSegments2, LineSegmentsGeometry } from "../wide-lines.js";
 import { prepareGLB } from "../gltf-content.js";
 import { layerShown, layerStates } from "../layers.js";
 import { buildBVH, ensureBVH, installLazyBVH, triangleCount, wantsBVH } from "../pick-accel.js";
@@ -1017,6 +1017,13 @@ export class Viewport {
     this.camera = this.perspective;
     this.camera.position.set(2.5, 2, 3.5);
     this.scene.add(this.camera);
+    // GLBs' wide lines (../wide-lines.js): drawn here, outside the content, so nothing that
+    // measures, picks or snaps to the content sees their template quads; each follows its line
+    this.wideGroup = new Group();
+    this.wideGroup.name = "wide lines";
+    this.scene.add(this.wideGroup);
+    /** every object's { line, wide } pairs */
+    this.wideCopies = new Set();
     /** the viewer's choice of projection, Look's; any other body looks in perspective (bodyPerspective) */
     this.chosenProjection = "perspective";
     this.bodyForcesPerspective = false;
@@ -1357,6 +1364,7 @@ export class Viewport {
     r.setViewport(0, 0, this.size.w, this.size.h);
     r.autoClear = true;
     r.info.reset();
+    for (const pair of this.wideCopies) followLine(pair);
     r.render(this.scene, this.camera);
     const info = r.info;
     this.stats = {
@@ -1763,6 +1771,13 @@ export class Viewport {
     if (entry.group.parent !== target) target.add(entry.group);
   }
 
+  /** Lets go of an object's wide lines (setGLB). */
+  dropWide(entry) {
+    for (const pair of entry.wide ?? []) this.wideCopies.delete(pair);
+    disposeWide(entry.wide);
+    entry.wide = [];
+  }
+
   removeObject(id) {
     const entry = this.objects.get(id);
     if (!entry) return;
@@ -1774,6 +1789,7 @@ export class Viewport {
     // (and a link's doc, hung in its body: its stage closes on its own)
     for (const child of [...entry.body.children]) if (this.objects.get(child.userData?.objectId)?.group === child) this.content.add(child);
     this.removePlaceholder(entry);
+    this.dropWide(entry);
     disposeObject(entry.body);
     entry.group.removeFromParent();
     this.objects.delete(id);
@@ -1909,6 +1925,7 @@ export class Viewport {
     const t1 = performance.now();
     if (stale()) {
       disposeObject(prepared.content);
+      disposeWide(prepared.wide);
       return;
     }
     // Compile its shaders before it's drawn, off the main thread where the
@@ -1927,12 +1944,21 @@ export class Viewport {
     const t2 = performance.now();
     const mine = this.compiling.delete(prepared.content);
     if (stale()) {
-      if (mine) disposeObject(prepared.content);
+      if (mine) {
+        disposeObject(prepared.content);
+        disposeWide(prepared.wide);
+      }
       return;
     }
     if (entry.content) {
       entry.content.removeFromParent();
       disposeObject(entry.content);
+    }
+    this.dropWide(entry);
+    entry.wide = prepared.wide ?? [];
+    for (const pair of entry.wide) {
+      this.wideGroup.add(pair.wide);
+      this.wideCopies.add(pair);
     }
     entry.content = prepared.content;
     entry.materials = prepared.materials;
@@ -2708,6 +2734,7 @@ export class Viewport {
     this.canvas.remove();
     this.labels.dispose();
     this.objects.clear();
+    this.wideCopies?.clear();
     this.poses.clear();
     this.layers.clear();
     this.extents.clear();
