@@ -1213,3 +1213,15 @@ scheme per viewport, set as the theme is read, so switching schemes needs no
 recompile; the patch goes in before the GLB's shaders compile. Checked in
 headless Chromium (SwiftShader): the GLSL compiles and gives the JS mirror's
 colours.
+
+### 2026-11-24 — A picture's clear texels hide nothing
+
+A drawing's quad hid a selection's box behind its clear parts: glTF's BLEND
+turns depth writes off in GLTFLoader, but `applyMaterials` writes depth for
+anything fully opaque, so the quad's whole rectangle filled the depth
+buffer and whatever is drawn after it (the box's lines, other transparent
+things) failed the depth test there. `prepareMaterials` now gives a blended
+material with a map an `alphaTest` at the bar picking uses (`ALPHA_MIN`), so
+its clear texels are discarded: they write neither colour nor depth, and
+what is drawn keeps its depth. Checked in headless Chromium: a line drawn
+after the picture shows through its clear texels with it, and not without.

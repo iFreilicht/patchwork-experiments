@@ -3,7 +3,8 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { encodeGLB, computeNormals, parseGLB, MODE } from "./glb.js";
 import { authoredMaterials, collapseInstances, dequantizePositions, loadGLTF, localParts, prepareGLB, prepareMaterials } from "./gltf-content.js";
-import { Box3, Euler, Matrix4, Group } from "three";
+import { Box3, Euler, Matrix4, Group, Mesh, MeshBasicMaterial, PlaneGeometry, Texture } from "three";
+import { ALPHA_MIN } from "./alpha-pick.js";
 import { nearestScreenVertex } from "./stage/viewport.js";
 import { composeMatrix } from "./transform.js";
 import { yawOfEuler } from "./carry-rules.js";
@@ -90,6 +91,18 @@ describe("gltf content", () => {
     expect(byMesh.painted.userData.useThemeColor).toBe(false);
     expect(authoredMaterials(gltf.parser).has(byMesh.painted)).toBe(true);
     expect(mats.length).toBe(3);
+  });
+
+  it("discards a blended picture's clear texels, so they hide nothing drawn after them; leaves other materials' alphaTest alone", () => {
+    const root = new Group();
+    const mesh = (name, material) => root.add(Object.assign(new Mesh(new PlaneGeometry(), material), { name }));
+    mesh("picture", new MeshBasicMaterial({ map: new Texture(), transparent: true }));
+    mesh("masked", new MeshBasicMaterial({ map: new Texture(), transparent: true, alphaTest: 0.5 }));
+    mesh("opaque", new MeshBasicMaterial({ map: new Texture() }));
+    mesh("glass", new MeshBasicMaterial({ transparent: true, opacity: 0.5 }));
+    prepareMaterials(root, null);
+    const by = Object.fromEntries(root.children.map((o) => [o.name, o.material.alphaTest]));
+    expect(by).toEqual({ picture: ALPHA_MIN / 255, masked: 0.5, opaque: 0, glass: 0 });
   });
 
   it("keeps an authored colour on LINES primitives, with and without vertex colours (Line/Points materials are derived)", async () => {

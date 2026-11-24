@@ -188,7 +188,9 @@ CONVENTIONS.md.
   closest spacing, so a lone connector doesn't snap.
 - **Textures:** a material that shows its texture's alpha (`blend`, or a
   mask) is picked only where its texels are drawn: a click on a clear one
-  goes through to what lies behind (`src/alpha-pick.js`).
+  goes through to what lies behind (`src/alpha-pick.js`). A blended one's
+  clear texels are discarded as it's drawn (`alphaTest`), so they hide
+  nothing drawn after it either.
 - **Pictures and colour schemes:** a material's `extras.colorScheme`
   (`"light"` or `"dark"`) says its texture was drawn for that background. A
   viewer whose theme is the other scheme sees it recoloured: in OKLab,

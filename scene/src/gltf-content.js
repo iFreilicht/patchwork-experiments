@@ -18,6 +18,7 @@ import { MeshoptDecoder } from "three/examples/jsm/libs/meshopt_decoder.module.j
 import { toArrayBuffer } from "./file-content.js";
 import { placeConnector, sanitizeConnectors } from "./carry-rules.js";
 import { nodeLayer, sanitizeLayers } from "./layers.js";
+import { ALPHA_MIN } from "./alpha-pick.js";
 
 let loader = null;
 
@@ -96,7 +97,8 @@ const snapshotColor = (c) => (c?.isColor ? c.clone() : null);
 
 /**
  * Every distinct material under root, prepared for display: double-sided and
- * dithered on meshes, GLTFLoader's default marked `useThemeColor` (matte), and the GLB's
+ * dithered on meshes, a blended texture's clear texels discarded (alphaTest),
+ * GLTFLoader's default marked `useThemeColor` (matte), and the GLB's
  * own values kept in userData.gltf so rules can be re-applied from scratch.
  * @returns {object[]} the distinct materials
  */
@@ -121,6 +123,11 @@ export function prepareMaterials(root, parser) {
         m.roughness = 0.75;
       }
       m.userData.useThemeColor = isDefault;
+      // A blended picture's clear texels write nothing, depth included: the
+      // scene draws it with depth (applyMaterials), and without this its
+      // whole rectangle would hide what's drawn after it behind its clear parts
+      // (a selection's box, other pictures). The same bar picking uses.
+      if (m.map && m.transparent && !(m.alphaTest > 0)) m.alphaTest = ALPHA_MIN / 255;
       m.userData.gltf = {
         color: snapshotColor(m.color),
         emissive: snapshotColor(m.emissive),
