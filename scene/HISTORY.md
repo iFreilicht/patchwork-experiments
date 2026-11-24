@@ -1225,3 +1225,25 @@ material with a map an `alphaTest` at the bar picking uses (`ALPHA_MIN`), so
 its clear texels are discarded: they write neither colour nor depth, and
 what is drawn keeps its depth. Checked in headless Chromium: a line drawn
 after the picture shows through its clear texels with it, and not without.
+
+### 2026-11-24 — An orthographic camera
+
+A drawing edited in place lies face on and flat while the scene behind it
+foreshortened, which confused more than it showed. The viewport keeps two
+cameras and draws with one: Look's projection, perspective or orthographic
+(the toolbar's view group, `5`; kept with the viewer's camera and a doc's
+home); any other body looks in perspective, and Look's choice comes back
+with Look. `camera.get()` says `projection`, `set` takes it, and the view's
+value has it, so surfaces follow it.
+
+Taken from patchwork-cad's own viewer, which met each of these switching
+projections (its 8c4454c): the orthographic camera shows at the target what
+the perspective one shows from the same eye (its box follows the focus
+distance, the fov and the aspect), so switching keeps the picture and
+whatever measures from the eye (the depth range, a handle's size) holds; the
+orbit's zoom of it is folded into the eye's distance, so a view zoomed far
+out doesn't keep its eye close by; its near plane encloses everything drawn
+and may lie behind the eye, since the eye stands where perspective's would;
+and three starts an orthographic ray on the eye's plane, so a port ray starts
+at the near plane instead, its hits' distances still from the eye's plane.
+Vertex snapping culls and searches its BVH by the projection too.

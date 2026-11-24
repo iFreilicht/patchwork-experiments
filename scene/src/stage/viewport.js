@@ -21,6 +21,7 @@ import {
   Matrix3,
   Matrix4,
   Mesh,
+  OrthographicCamera,
   PerspectiveCamera,
   Plane,
   PMREMGenerator,
@@ -957,6 +958,8 @@ export class Viewport {
      * viewer's scheme is the other one, so it's recoloured (../scheme-recolour.js)
      */
     this.schemeUniforms = { light: { value: 0 }, dark: { value: 0 } };
+    /** told the projection whenever the camera switches (onProjection) */
+    this.projectionListeners = new Set();
     /** group id → the ids of the objects in it (at any depth): a group has no node of its own */
     this.groupMembers = new Map(); // the union of groupSets
     this.groupSets = new Map(); // stage number → its groups' members
@@ -1008,9 +1011,19 @@ export class Viewport {
   /** The scene graph, lights, layers and picking; no renderer needed. */
   initScene() {
     this.scene = new Scene();
-    this.camera = new PerspectiveCamera(45, this.size.w / this.size.h, 0.01, 1000);
+    // Two cameras, one drawing at a time (`this.camera`): an orthographic view shows at the focus
+    // exactly what the perspective one shows from the same eye (fitOrtho), so the eye's distance
+    // means the same in both and switching keeps the picture (setProjection).
+    this.perspective = new PerspectiveCamera(45, this.size.w / this.size.h, 0.01, 1000);
+    this.orthographic = new OrthographicCamera(-1, 1, 1, -1, 0.01, 1000);
+    this.camera = this.perspective;
     this.camera.position.set(2.5, 2, 3.5);
     this.scene.add(this.camera);
+    /** the viewer's choice of projection, Look's; any other body looks in perspective (bodyPerspective) */
+    this.chosenProjection = "perspective";
+    this.bodyForcesPerspective = false;
+    /** where the last port ray (rayFrom) starts, along it, from the eye's plane: an orthographic one may start behind it */
+    this.rayStart = 0;
     // Lighting. A key light fixed in the world, high and to one side, is what
     // gives a hull's panels (or any faceted part) different shades as the
     // view turns; a weak headlight fills whatever faces the camera so nothing
@@ -1063,7 +1076,10 @@ export class Viewport {
     // the wheel zooms toward what's under the pointer, and the orbit's centre moves with it: a
     // camera whose centre is elsewhere (a seat's, at its own edge of the table) zooms where you point
     this.controls.zoomToCursor = true;
-    this.controls.addEventListener("change", () => this.invalidate());
+    this.controls.addEventListener("change", () => {
+      this.foldZoom();
+      this.invalidate();
+    });
     this.controls.addEventListener("start", () => {
       this.wasTouched = true;
     });
@@ -1129,9 +1145,10 @@ export class Viewport {
     this.renderer.setSize(w, h, false);
     this.canvas.style.width = `${w}px`;
     this.canvas.style.height = `${h}px`;
-    this.camera.aspect = w / h;
-    this.camera.updateProjectionMatrix();
     this.size = { w, h };
+    this.perspective.aspect = w / h;
+    this.perspective.updateProjectionMatrix();
+    this.fitOrtho();
     // Resizing clears the drawing buffer; draw now, before the browser paints,
     // rather than show a blank (or stretched) frame until the next tick.
     this.needsRender = false;
@@ -1142,6 +1159,95 @@ export class Viewport {
   focusDistance() {
     if (this.holds > 0) return this.holdDistance;
     return this.camera.position.distanceTo(this.controls.target);
+  }
+
+  // ─── projection ───────────────────────────────────────────────────────────
+  // The orthographic camera always shows at the focus what the perspective one
+  // shows there from the same eye (fitOrtho), so the eye's distance means the
+  // same in both: switching keeps the picture, and whatever measures from the
+  // eye (the depth range, a handle's size on the screen) still holds. Its zoom
+  // is folded into that distance (foldZoom): a zoom the orbit makes moves the
+  // eye, so that a view zoomed far out doesn't keep its eye close by.
+
+  /** What the camera shows now: "perspective" or "orthographic". */
+  get projection() {
+    return this.camera?.isOrthographicCamera ? "orthographic" : "perspective";
+  }
+
+  /** The orthographic camera's box: the height the perspective camera sees at the focus, at the port's aspect. */
+  fitOrtho() {
+    const o = this.orthographic;
+    if (!o || this.camera !== o) return;
+    const h = this.focusDistance() * Math.tan((this.perspective.fov * Math.PI) / 360);
+    const w = h * (this.size.w / this.size.h);
+    if (o.top === h && o.right === w && o.zoom === 1) return;
+    Object.assign(o, { left: -w, right: w, top: h, bottom: -h, zoom: 1 });
+    o.updateProjectionMatrix();
+  }
+
+  /** The orbit zoomed the orthographic camera: move its eye instead, to where it shows as much. */
+  foldZoom() {
+    const o = this.orthographic;
+    if (this.camera !== o || o.zoom === 1 || this.holds > 0) return;
+    const target = this.controls.target;
+    const away = o.position.clone().sub(target);
+    const d = away.length() / o.zoom;
+    o.position.copy(target).addScaledVector(away.normalize(), d);
+    o.zoom = 1;
+    this.fitOrtho();
+    o.updateMatrixWorld();
+  }
+
+  /**
+   * Show the scene in `projection` ("perspective" or "orthographic"), keeping
+   * the picture at the focus. It's Look's: a body other than Look looks in
+   * perspective whatever is chosen (bodyPerspective), and the choice applies
+   * again once Look is back.
+   */
+  setProjection(projection) {
+    if (projection !== "perspective" && projection !== "orthographic") return;
+    const changed = projection !== this.chosenProjection;
+    this.chosenProjection = projection;
+    this.applyProjection();
+    // the viewer's camera changed as much as by an orbit (kept as theirs: view.js); never while held
+    if (changed) this.endCamera("projection");
+  }
+
+  /** A body other than Look is on top (true) or Look is (false). */
+  bodyPerspective(on) {
+    this.bodyForcesPerspective = !!on;
+    this.applyProjection();
+  }
+
+  applyProjection() {
+    if (!this.scene) return;
+    const next = !this.bodyForcesPerspective && this.chosenProjection === "orthographic" ? this.orthographic : this.perspective;
+    const prev = this.camera;
+    if (next === prev) return;
+    next.position.copy(prev.position);
+    next.quaternion.copy(prev.quaternion);
+    next.up.copy(prev.up);
+    next.near = prev.near;
+    next.far = prev.far;
+    this.scene.remove(prev);
+    this.scene.add(next);
+    next.add(this.headlight);
+    this.camera = next;
+    if (this.controls) this.controls.object = next;
+    if (next === this.perspective) {
+      next.aspect = this.size.w / this.size.h;
+      next.updateProjectionMatrix();
+    }
+    this.fitOrtho();
+    next.updateMatrixWorld();
+    this.invalidate();
+    for (const fn of [...this.projectionListeners]) fn(this.projection);
+  }
+
+  /** Call fn(projection) whenever the camera switches projection (by choice, or a body's). @returns {() => void} off */
+  onProjection(fn) {
+    this.projectionListeners.add(fn);
+    return () => this.projectionListeners.delete(fn);
   }
 
   /**
@@ -1175,6 +1281,8 @@ export class Viewport {
     }
     this.depthBox = depth.isEmpty() ? null : depth;
     this.sceneRadius = all.isEmpty() ? 1 : Math.max(all.getBoundingSphere(new Sphere()).radius, 1e-4);
+    /** everything drawn, for an orthographic near plane, which may lie behind the eye (fitDepth) */
+    this.sceneSphere = all.isEmpty() ? null : all.getBoundingSphere(new Sphere());
     if (this.shadows && this.renderer) this.renderer.shadowMap.needsUpdate = true;
   }
 
@@ -1213,7 +1321,17 @@ export class Viewport {
     if (this.depthDirty) this.updateDepth();
     const held = this.holds > 0 ? this.heldDepth : null;
     const { clear, known } = held?.near != null ? { clear: 0, known: false } : this.nearestClear(this.camera.position);
-    const { near, far } = depthRange({ dist: this.focusDistance(), radius: this.sceneRadius, clear, known, held });
+    let { near, far } = depthRange({ dist: this.focusDistance(), radius: this.sceneRadius, clear, known, held });
+    // Orthographic: everything drawn in the view's box shows, before the eye too (as the eye
+    // stands where perspective's would, it can be inside the scene); its rays start there (rayFrom)
+    if (this.camera.isOrthographicCamera && this.sceneSphere) {
+      const s = this.sceneSphere;
+      const depth = s.center.clone().sub(this.camera.position).dot(this.forward());
+      const reach = s.radius * 1.01 + this.focusDistance() * 1e-3;
+      if (held?.near == null) near = Math.min(near, depth - reach);
+      if (held?.far == null) far = Math.max(far, depth + reach);
+    }
+    this.fitOrtho();
     if (this.camera.near !== near || this.camera.far !== far) {
       this.camera.near = near;
       this.camera.far = far;
@@ -2057,7 +2175,7 @@ export class Viewport {
     const position = this.camera.position.toArray();
     const target = this.holds > 0 ? reseatTarget(position, this.forward().toArray(), this.holdDistance) : this.controls.target.toArray();
     const up = new Vector3(0, 1, 0).applyQuaternion(this.camera.quaternion).toArray();
-    return { position, target, fov: this.camera.fov, up };
+    return { position, target, fov: this.perspective.fov, up, projection: this.projection };
   }
 
   /**
@@ -2070,13 +2188,14 @@ export class Viewport {
    */
   setCamera(cam) {
     if (!this.ok || !cam) return;
+    if (cam.projection != null) this.setProjection(cam.projection);
     const camera = this.camera;
     if (cam.position) camera.position.copy(v3(cam.position));
     const fov = Number(cam.fov);
     let fovChanged = false;
-    if (cam.fov != null && Number.isFinite(fov) && fov !== camera.fov) {
-      camera.fov = Math.min(179, Math.max(1, fov));
-      camera.updateProjectionMatrix();
+    if (cam.fov != null && Number.isFinite(fov) && fov !== this.perspective.fov) {
+      this.perspective.fov = Math.min(179, Math.max(1, fov));
+      this.perspective.updateProjectionMatrix();
       fovChanged = true;
     }
     const q = cam.quaternion ? (Array.isArray(cam.quaternion) ? cam.quaternion.map(Number) : [cam.quaternion.x, cam.quaternion.y, cam.quaternion.z, cam.quaternion.w]) : null;
@@ -2101,6 +2220,9 @@ export class Viewport {
       resetOrbitMotion(this.controls);
       this.controls.update();
     }
+    // the orthographic box follows the distance and the fov now, for picks before the next frame
+    this.fitOrtho();
+    this.camera.updateMatrixWorld();
     this.invalidate();
     if (fovChanged) for (const fn of [...this.cameraWatchers]) fn(this.getCamera());
   }
@@ -2112,8 +2234,8 @@ export class Viewport {
     if (!b || b.isEmpty()) b = new Box3(new Vector3(-0.5, 0, -0.5), new Vector3(0.5, 1, 0.5));
     const sphere = b.getBoundingSphere(new Sphere());
     const radius = Math.max(sphere.radius, 1e-4);
-    const fov = (this.camera.fov * Math.PI) / 180;
-    const fit = radius / Math.sin(Math.min(fov, fov * this.camera.aspect) / 2);
+    const fov = (this.perspective.fov * Math.PI) / 180;
+    const fit = radius / Math.sin(Math.min(fov, fov * (this.size.w / this.size.h)) / 2);
     let dir = this.holds > 0 ? this.forward().negate() : this.camera.position.clone().sub(this.controls.target);
     if (dir.lengthSq() < 1e-12) dir = new Vector3(1, 0.8, 1.4);
     dir.normalize();
@@ -2131,7 +2253,7 @@ export class Viewport {
     this.endCamera("frame");
   }
 
-  /** Someone finished moving the camera: `how` an orbit or zoom ("orbit") or a Frame ("frame"); never while it's held. */
+  /** Someone finished moving the camera: `how` an orbit or zoom ("orbit"), a Frame ("frame") or a switch of projection ("projection"); never while it's held. */
   endCamera(how) {
     if (this.holds > 0) return;
     const cam = this.getCamera();
@@ -2254,6 +2376,11 @@ export class Viewport {
     this.camera.updateMatrixWorld();
     const ndc = new Vector2((x / this.size.w) * 2 - 1, -(y / this.size.h) * 2 + 1);
     this.raycaster.setFromCamera(ndc, this.camera);
+    // three starts an orthographic ray on the eye's plane; its near plane may lie behind that
+    // (fitDepth): start there, so that whatever is drawn is hit. Hits still say their distance
+    // from the eye's plane (hitOf).
+    this.rayStart = this.camera.isOrthographicCamera && this.camera.near < 0 ? this.camera.near : 0;
+    if (this.rayStart) this.raycaster.ray.origin.addScaledVector(this.raycaster.ray.direction, this.rayStart);
     this.raycaster.far = Infinity;
     return this.raycaster;
   }
@@ -2328,7 +2455,7 @@ export class Viewport {
       }
       normal = n.toArray();
     }
-    return { id: objectIdOf(h.object), point: h.point.toArray(), normal, distance: h.distance, back };
+    return { id: objectIdOf(h.object), point: h.point.toArray(), normal, distance: h.distance + this.rayStart, back };
   }
 
   /**
@@ -2353,7 +2480,9 @@ export class Viewport {
     // Cull before scanning vertices: skip any piece whose bounding sphere
     // can't come within maxPx of the cursor (or lies past maxDepth). Scanning
     // every vertex of every shown object costs tens of ms at Solander scale.
-    const fPx = rect.height / 2 / Math.tan((cam.fov * Math.PI) / 360);
+    const fPx = cam.isPerspectiveCamera ? rect.height / 2 / Math.tan((cam.fov * Math.PI) / 360) : 0;
+    // orthographic: pixels per metre wherever it is
+    const ortho = cam.isOrthographicCamera ? (rect.height * cam.zoom) / (cam.top - cam.bottom) : 0;
     const view = cam.matrixWorldInverse;
     const centre = new Vector3();
     const far = (o, m, px) => {
@@ -2365,6 +2494,10 @@ export class Viewport {
       centre.copy(bs.center).applyMatrix4(m);
       if (Math.hypot(centre.x - eye[0], centre.y - eye[1], centre.z - eye[2]) - r > maxDepth) return true;
       centre.applyMatrix4(view);
+      if (ortho) {
+        const b = r * ortho;
+        return Math.abs(rect.width / 2 + centre.x * ortho - sx) > b + px || Math.abs(rect.height / 2 - centre.y * ortho - sy) > b + px;
+      }
       const cz = -centre.z;
       if (cz + r < 0) return true; // all behind the camera
       if (cz - r <= 1e-6) return false; // around the camera: can't tell
@@ -2377,7 +2510,12 @@ export class Viewport {
     // For a mesh that has its pick BVH (built in idle time after it loads),
     // visit only the triangles in BVH nodes that come within the snap
     // distance of the pick ray, not every vertex.
-    const dir = new Vector3((sx / rect.width) * 2 - 1, -(sy / rect.height) * 2 + 1, 0.5).unproject(cam).sub(cam.position).normalize();
+    // the ray through the point: from the eye in perspective; orthographic, parallel, from the near plane
+    const aim = new Raycaster();
+    aim.setFromCamera(new Vector2((sx / rect.width) * 2 - 1, -(sy / rect.height) * 2 + 1), cam);
+    if (ortho && cam.near < 0) aim.ray.origin.addScaledVector(aim.ray.direction, cam.near);
+    const dir = aim.ray.direction.clone();
+    const from = aim.ray.origin.toArray();
     const c = new Vector3();
     const size = new Vector3();
     const viaBVH = (bvh, m, mw, limit) => {
@@ -2402,14 +2540,14 @@ export class Viewport {
         intersectsBounds: (box) => {
           box.getCenter(c).applyMatrix4(model);
           const r = (box.getSize(size).length() / 2) * scaleMax;
-          const vx = c.x - eye[0], vy = c.y - eye[1], vz = c.z - eye[2];
+          if (Math.hypot(c.x - eye[0], c.y - eye[1], c.z - eye[2]) - r > maxDepth) return false;
+          const vx = c.x - from[0], vy = c.y - from[1], vz = c.z - from[2];
           const dist = Math.hypot(vx, vy, vz);
-          if (dist - r > maxDepth) return false;
           const t = vx * dir.x + vy * dir.y + vz * dir.z;
           if (t + r < 0) return false;
           const perp = Math.sqrt(Math.max(0, dist * dist - t * t));
-          // a pixel off the ray at distance D is at least D / fPx away from it
-          return perp <= r + ((dist + r) * limit * 1.1) / fPx;
+          // a pixel off the ray at distance D is at least D / fPx away from it; orthographic, 1 / ortho anywhere
+          return perp <= r + (ortho ? (limit * 1.1) / ortho : ((dist + r) * limit * 1.1) / fPx);
         },
         intersectsTriangle: (tri) => {
           test(tri.a);
@@ -2466,7 +2604,8 @@ export class Viewport {
     if (!this.ok) return null;
     const rect = { width: this.size.w, height: this.size.h };
     const rc = this.rayFrom(x, y);
-    const worldPerPx = (2 * this.focusDistance() * Math.tan((this.camera.fov * Math.PI) / 360)) / rect.height;
+    // (the same in both projections: the orthographic camera shows at the focus what the perspective one does)
+    const worldPerPx = (2 * this.focusDistance() * Math.tan((this.perspective.fov * Math.PI) / 360)) / rect.height;
     rc.params.Line.threshold = worldPerPx * 5;
     rc.params.Points.threshold = worldPerPx * 5;
     const eye = this.camera.position;
@@ -2528,6 +2667,7 @@ export class Viewport {
     if (d.lengthSq() < 1e-24) return null;
     const rc = this.raycaster;
     rc.set(v3(origin), d.normalize());
+    this.rayStart = 0; // a world ray starts where it's given
     rc.far = Number(far) > 0 ? Number(far) : Infinity;
     rc.params.Line.threshold = 0;
     rc.params.Points.threshold = 0;

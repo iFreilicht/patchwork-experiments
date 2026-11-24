@@ -1,6 +1,8 @@
 // scene.frame: the editor's verbs for pointing the camera at things.
 //   - "Frame" (.): the selection, or with nothing selected the whole scene
 //     ("Frame all"). Not F: F is carry's Flip, on every surface (STAGE.md, "Bodies").
+//   - "Orthographic" (5): Look's projection, orthographic or perspective; the
+//     picture at the focus stays as it is. Kept with the viewer's camera.
 //   - "Set home view" (menu): this camera as the doc's suggested start
 //     (doc.view.start.home, STAGE.md, "Arriving"), which a viewer without a saved
 //     camera opens at. An edit: undo takes it back.
@@ -31,6 +33,25 @@ export default {
           },
         },
         {
+          id: "orthographic",
+          name: "Orthographic",
+          key: "5",
+          group: "view",
+          icon: "orthographic",
+          show: ["toolbar"],
+          state: (target, { view } = {}) => {
+            if (target != null) return null;
+            // the view's value says it (so the bar draws again as it switches); the camera, where there is none
+            const on = (view?.projection ?? api.focus()?.camera.get()?.projection) === "orthographic";
+            return { checked: on, title: on ? "Show it in perspective" : "Show it orthographic: without perspective" };
+          },
+          run: () => {
+            const f = api.focus();
+            const cam = f?.camera.get();
+            if (cam) f.camera.set({ projection: cam.projection === "orthographic" ? "perspective" : "orthographic" });
+          },
+        },
+        {
           id: "set-home",
           edit: true,
           name: "Set home view",
@@ -43,6 +64,7 @@ export default {
             const home = { position: [...cam.position].map(Number) };
             if (Array.isArray(cam.target)) home.target = [...cam.target].map(Number);
             if (Number.isFinite(cam.fov)) home.fov = cam.fov;
+            if (cam.projection === "orthographic") home.projection = "orthographic";
             editor(f).edit(
               (d) => {
                 if (!d.view || typeof d.view !== "object") d.view = {};

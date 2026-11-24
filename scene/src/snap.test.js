@@ -52,11 +52,14 @@ describe("nearestScreenVertex (measure snapping)", () => {
 });
 
 describe("Viewport.nearestVertex culling and BVH", () => {
-  it("finds the same vertex as a brute-force scan over every vertex", async () => {
-    const { Group, IcosahedronGeometry, Mesh, MeshBasicMaterial, PerspectiveCamera, Matrix4, InstancedMesh, TorusKnotGeometry } = await import("three");
+  // orthographic as the viewport shows it: as much as perspective at the focus, its near plane behind the eye
+  for (const projection of ["perspective", "orthographic"])
+  it(`finds the same vertex as a brute-force scan over every vertex (${projection})`, async () => {
+    const { Group, IcosahedronGeometry, Mesh, MeshBasicMaterial, PerspectiveCamera, OrthographicCamera, Matrix4, InstancedMesh, TorusKnotGeometry } = await import("three");
     const { MeshBVH } = await import("three-mesh-bvh");
     const { Viewport } = await import("./stage/viewport.js");
-    const cam = new PerspectiveCamera(45, 1.6, 0.01, 1000);
+    const h = Math.hypot(3, 2, 6) * Math.tan((45 * Math.PI) / 360);
+    const cam = projection === "perspective" ? new PerspectiveCamera(45, 1.6, 0.01, 1000) : new OrthographicCamera(-h * 1.6, h * 1.6, h, -h, -5, 1000);
     cam.position.set(3, 2, 6);
     cam.lookAt(0, 0, 0);
     cam.updateMatrixWorld();

@@ -217,6 +217,9 @@ describe("the stage's pure helpers", () => {
     const stray = { position: [2, 2, 2], target: [0, 0, 0] };
     expect(initialCamera({ stored: { position: [3, 3, 3], target: [0, 1, 0], fov: 30 }, doc: { view: { start: { home } } } })).toEqual({ position: [3, 3, 3], target: [0, 1, 0], fov: 30 });
     expect(initialCamera({ stored: { position: "nope" }, doc: { view: { start: { home } } } })).toEqual(home);
+    // the projection is kept, and only one of the two
+    expect(initialCamera({ stored: { position: [1, 2, 3], projection: "orthographic" } })).toEqual({ position: [1, 2, 3], projection: "orthographic" });
+    expect(initialCamera({ stored: { position: [1, 2, 3], projection: "fisheye" } })).toEqual({ position: [1, 2, 3] });
     expect(initialCamera({ doc: { camera: stray } })).toBeNull();
     expect(initialCamera({ doc: { view: { home } } })).toBeNull();
     expect(initialCamera({ doc: {} })).toBeNull();

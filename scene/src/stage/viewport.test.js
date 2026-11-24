@@ -485,6 +485,108 @@ describe("the camera rig", () => {
   });
 });
 
+describe("projection", () => {
+  const near = (a, b) => a.forEach((v, i) => expect(v).toBeCloseTo(b[i], 6));
+  const px = (vp, p) => {
+    const q = vp.project(p);
+    return [q.x, q.y];
+  };
+
+  it("switches keeping the picture at the focus: a point there stays where it was on the screen", () => {
+    const vp = headless();
+    lookFrom(vp, [3, 2, 6], [0, 0, 0]);
+    // a point on the plane through the target, square to the view
+    const fwd = vp.forward();
+    const right = new Vector3().crossVectors(fwd, vp.camera.up).normalize();
+    const p = right.clone().multiplyScalar(0.5).toArray();
+    const before = [px(vp, [0, 0, 0]), px(vp, p)];
+    vp.setProjection("orthographic");
+    expect(vp.camera.isOrthographicCamera).toBe(true);
+    expect(vp.projection).toBe("orthographic");
+    near(px(vp, [0, 0, 0]), before[0]);
+    near(px(vp, p), before[1]);
+    // and back: the perspective camera stands where the orthographic one stood
+    vp.setProjection("perspective");
+    near(px(vp, p), before[1]);
+  });
+
+  it("moves the headlight and the orbit with the camera", () => {
+    const vp = headless();
+    vp.setProjection("orthographic");
+    expect(vp.headlight.parent).toBe(vp.orthographic);
+    expect(vp.controls.object).toBe(vp.orthographic);
+    expect(vp.scene.children).toContain(vp.orthographic);
+    expect(vp.scene.children).not.toContain(vp.perspective);
+  });
+
+  it("folds an orbit's zoom into the eye's distance, showing as much", () => {
+    const vp = headless();
+    lookFrom(vp, [0, 0, 10]);
+    vp.setProjection("orthographic");
+    const edge = px(vp, [1, 0, 0]);
+    // the orbit zooms an orthographic camera in by 2: then the eye comes twice as near, at zoom 1
+    vp.orthographic.zoom = 2;
+    vp.orthographic.updateProjectionMatrix();
+    const zoomed = px(vp, [1, 0, 0]);
+    vp.foldZoom();
+    expect(vp.orthographic.zoom).toBe(1);
+    expect(vp.orthographic.position.z).toBeCloseTo(5, 6);
+    near(px(vp, [1, 0, 0]), zoomed);
+    expect(zoomed[0] - 100).toBeCloseTo(2 * (edge[0] - 100), 6);
+  });
+
+  it("draws and picks what lies before the eye: its near plane goes behind it, and its rays start there", () => {
+    const vp = headless();
+    cube(vp, "behind", [0, 0, 12], 1);
+    cube(vp, "ahead", [0, 0, 0], 1);
+    lookFrom(vp, [0, 0, 10]);
+    vp.setProjection("orthographic");
+    vp.fitDepth();
+    expect(vp.camera.near).toBeLessThan(-2);
+    const hit = vp.pick(100, 50);
+    expect(hit.id).toBe("behind");
+    // a distance from the eye's plane: behind it, negative
+    expect(hit.distance).toBeCloseTo(-2.5, 6);
+    // a world ray from a plugin still starts where it's given
+    expect(vp.raycast([0, 0, 10], [0, 0, -1]).id).toBe("ahead");
+  });
+
+  it("says its projection, takes one, and tells the camera's end when the choice changes", () => {
+    const vp = headless();
+    const end = vi.fn();
+    vp.onCameraEnd(end);
+    expect(vp.getCamera().projection).toBe("perspective");
+    vp.setCamera({ projection: "orthographic" });
+    expect(vp.getCamera().projection).toBe("orthographic");
+    expect(end).toHaveBeenCalledOnce();
+    expect(end.mock.calls[0][1]).toBe("projection");
+    vp.setCamera({ projection: "orthographic", position: [0, 0, 4] });
+    expect(end).toHaveBeenCalledOnce();
+    vp.setProjection("sideways");
+    expect(vp.projection).toBe("orthographic");
+  });
+
+  it("is Look's: a body looks in perspective, and Look's choice comes back with Look", () => {
+    const vp = headless();
+    vp.setProjection("orthographic");
+    vp.bodyPerspective(true);
+    expect(vp.projection).toBe("perspective");
+    vp.bodyPerspective(false);
+    expect(vp.projection).toBe("orthographic");
+  });
+
+  it("fits the orthographic box to the port's aspect and the fov", () => {
+    const vp = headless({ w: 300, h: 100 });
+    lookFrom(vp, [0, 0, 10]);
+    vp.setProjection("orthographic");
+    const h = 10 * Math.tan((45 * Math.PI) / 360);
+    expect(vp.orthographic.top).toBeCloseTo(h, 9);
+    expect(vp.orthographic.right).toBeCloseTo(3 * h, 9);
+    vp.setCamera({ fov: 60 });
+    expect(vp.orthographic.top).toBeCloseTo(10 * Math.tan(Math.PI / 6), 9);
+  });
+});
+
 describe("pictures drawn for a colour scheme", () => {
   it("turns on the recolouring of pictures drawn for the other scheme", () => {
     const vp = headless();

@@ -67,7 +67,8 @@ run once per view, whatever the focus, and work on the focus doc.
 - **Fixed versions.** A URL with heads, or *Fix at this version*, holds an
   object at one version (a fixed link is a pin); *Follow latest* lets go.
 - **The clock.** A doc with processes gets a chip to pause its world time.
-- **Yours alone:** the camera, grid, axes, bounds, units and panel (`P`);
+- **Yours alone:** the camera and its projection (`5`: orthographic or
+  perspective, in Look), grid, axes, bounds, units and panel (`P`);
   the doc's `view` gives defaults. Selection, hover and carries are shared
   live, never written. Only shown objects load.
 

@@ -58,12 +58,13 @@ const LOOK_LOCAL = Object.freeze({ id: LOOK.id, label: LOOK.label, ext: null, de
 
 const isVec3 = (v) => Array.isArray(v) && v.length >= 3 && v.slice(0, 3).every((n) => Number.isFinite(Number(n)));
 
-/** A camera as saved (position, target, fov?), checked; null if it isn't one. */
+/** A camera as saved (position, target?, fov?, projection?), checked; null if it isn't one. */
 export function cleanCamera(c) {
   if (!c || typeof c !== "object" || !isVec3(c.position)) return null;
   const out = { position: c.position.slice(0, 3).map(Number) };
   if (isVec3(c.target)) out.target = c.target.slice(0, 3).map(Number);
   if (Number.isFinite(Number(c.fov)) && c.fov != null) out.fov = Number(c.fov);
+  if (c.projection === "orthographic" || c.projection === "perspective") out.projection = c.projection;
   return out;
 }
 
@@ -260,6 +261,8 @@ export function createView(element, { url = "scene", openStage = null } = {}) {
     pointer: Object.freeze({ locked: false, lock: false, wanted: false, released: false, refused: false }),
     escape: Object.freeze({ layer: null, hint: "" }),
     theme: null,
+    // what the camera shows: "perspective" or "orthographic" (the viewport's)
+    projection: "perspective",
     // the stage selection is scoped by (STAGE.md, "The input chain"): the outermost's ([]) until Enter moves it
     focus: Object.freeze([]),
     // every open doc's packages this viewer doesn't have (unionPackages): the packages prompt's
@@ -274,6 +277,7 @@ export function createView(element, { url = "scene", openStage = null } = {}) {
   const viewport = new Viewport({ port, themeRoot: root, time });
   atom.swap(assoc("theme", viewport.theme));
   cleanups.push(viewport.onTheme((t) => atom.swap(assoc("theme", t))));
+  cleanups.push(viewport.onProjection((p) => atom.swap(assoc("projection", p))));
   let canvas = viewport.canvas;
   if (!viewport.ok) {
     canvas = document.createElement("canvas");
@@ -291,7 +295,7 @@ export function createView(element, { url = "scene", openStage = null } = {}) {
   cleanups.push(
     // (only what the viewer's hand did: a Frame, the autoframe's too, isn't kept, so a scene opened again still frames what it has then)
     viewport.onCameraEnd((_, how) => {
-      if (how !== "orbit") return;
+      if (how !== "orbit" && how !== "projection") return;
       cameraTimer?.();
       cameraTimer = later(() => {
         cameraTimer = null;
@@ -621,6 +625,8 @@ export function createView(element, { url = "scene", openStage = null } = {}) {
     const s = topSitting();
     const r = s?.sitting?.ride ?? null;
     viewport.bodyRide?.(s && r && typeof r === "object" ? s.stage.scope.rideSpec(r) : null);
+    // the projection is Look's: any other body looks in perspective
+    viewport.bodyPerspective?.(!!s);
   }
 
   /** Hold a tool for an extension of a stage: its declaration ({ command?, name, keys, pointer }) and its input (already the stage's). → put, or null (no router, or a toggle that put it down) */

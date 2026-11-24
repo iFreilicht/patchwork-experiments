@@ -186,7 +186,7 @@ field as its default.
   focus path, focus first: the editor's at the left while editing, `"world"`
   ones at the right in every body. The editor's are in groups, by a
   command's `group`: history (undo, redo), tools (Select, Move), the rest,
-  view (frame, grid, axes, bounds) and settings, behind a gear in a popover
+  view (frame, orthographic, grid, axes, bounds) and settings, behind a gear in a popover
   (units, snap); `order` sorts within a group. The panels group (Inspector,
   Dimensions, Parts) is the drawer's **rail** (`native/drawer.js`): a column
   of icons at the right edge, there while some panel is on offer, each
