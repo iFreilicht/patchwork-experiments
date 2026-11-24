@@ -43,6 +43,7 @@ import { LineMaterial } from "three/examples/jsm/lines/LineMaterial.js";
 import { prepareGLB } from "../gltf-content.js";
 import { layerShown, layerStates } from "../layers.js";
 import { buildBVH, ensureBVH, installLazyBVH, triangleCount, wantsBVH } from "../pick-accel.js";
+import { opaqueAt } from "../alpha-pick.js";
 import { defaultSnapRadius } from "../carry-rules.js";
 import { onThemeChange, resolveCssColor, colorSchemeOf } from "../theme.js";
 import { createRides } from "./ride.js";
@@ -2316,9 +2317,12 @@ export class Viewport {
     return { id: objectIdOf(h.object), point: h.point.toArray(), normal, distance: h.distance, back };
   }
 
-  /** The nearest drawn hit among `targets` for the raycaster as it's aimed (that `accept` takes, if given). */
+  /**
+   * The nearest drawn hit among `targets` for the raycaster as it's aimed (that `accept` takes, if given).
+   * A texture's clear texels aren't drawn: the ray goes on through them (../alpha-pick.js).
+   */
   nearestHit(targets, accept = null) {
-    for (const h of this.raycaster.intersectObjects(targets, true)) if (drawn(h.object) && (!accept || accept(h))) return h;
+    for (const h of this.raycaster.intersectObjects(targets, true)) if (drawn(h.object) && opaqueAt(h) && (!accept || accept(h))) return h;
     return null;
   }
 

@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from "vitest";
-import { Box3, BoxGeometry, Group, Mesh, MeshBasicMaterial, PerspectiveCamera, Vector3 } from "three";
+import { Box3, BoxGeometry, DataTexture, Group, Mesh, MeshBasicMaterial, PerspectiveCamera, PlaneGeometry, Vector3 } from "three";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 import { encodeGLB } from "../glb.js";
 import { keyOf } from "./paths.js";
@@ -502,6 +502,27 @@ describe("picking", () => {
     expect(vp.pick(100, 50).id).toBe("far");
     // nothing there; the ground if asked
     expect(vp.pick(100, 0)).toBe(null);
+  });
+
+  it("goes through a texture's clear texels to what lies behind (a drawing on a plane)", () => {
+    const vp = headless();
+    cube(vp, "behind", [0, 0, -3], 4);
+    // a 4 m square in front, its texture's left half clear and its right half drawn
+    const data = new Uint8Array(16 * 4);
+    for (let i = 8; i < 16; i++) data[i * 4 + 3] = 255;
+    const entry = vp.ensureObject("drawing");
+    const plane = new Mesh(new PlaneGeometry(4, 4), new MeshBasicMaterial({ map: new DataTexture(data, 16, 1), transparent: true }));
+    entry.content = plane;
+    entry.box = new Box3().setFromObject(plane);
+    entry.body.add(plane);
+    vp.applyDisplay("drawing", { transform: { position: [0, 0, 1] } });
+    lookFrom(vp, [0, 0, 10]);
+    const at = (x) => vp.project([x, 0, 1]);
+    expect(vp.pick(at(1).x, at(1).y).id).toBe("drawing");
+    expect(vp.pick(at(-1).x, at(-1).y).id).toBe("behind");
+    // a ray, too: walking, carrying and verbs see through it the same
+    expect(vp.raycast([-1, 0, 10], [0, 0, -1]).id).toBe("behind");
+    expect(vp.raycast([1, 0, 10], [0, 0, -1]).id).toBe("drawing");
   });
 
   it("snaps to a vertex within snapPx when asked", () => {

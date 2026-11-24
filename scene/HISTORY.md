@@ -1184,3 +1184,14 @@ chunk and used as the base colour; one image given twice is stored once. A
 PNG's alpha shows with `blend`. The scene's loader (GLTFLoader) draws them
 already, and `prepareMaterials` keeps an authored material's map. Copied to
 every kit copy (`check-kit.mjs --fix`).
+
+### 2026-11-24 — Picking through a texture's clear texels
+
+A drawing in a scene is a textured quad, mostly transparent, and a click on
+its clear parts hit the quad instead of the body behind it. `nearestHit`,
+which every pick and raycast goes through, now passes over a hit whose
+material shows its texture's alpha (transparent, or alphaTest) where the
+texel under it and every one beside it is clear (`src/alpha-pick.js`; the
+ring of neighbours keeps a thin stroke clickable). The alpha is read once
+per texture image, at most 2048 texels a side, and kept; what can't be read
+(not loaded yet, no canvas) counts as drawn.

@@ -186,6 +186,9 @@ CONVENTIONS.md.
   the connector's frame. A tagged connector takes only objects sharing a
   tag. `extras.snapRadius` (metres) sets the reach; without it, 0.71 × the
   closest spacing, so a lone connector doesn't snap.
+- **Textures:** a material that shows its texture's alpha (`blend`, or a
+  mask) is picked only where its texels are drawn: a click on a clear one
+  goes through to what lies behind (`src/alpha-pick.js`).
 - **Legend:** `extras.legend = { title, unit, min, max, stops }` on a mesh,
   2–32 `#rrggbb` stops, draws a colour bar.
 
