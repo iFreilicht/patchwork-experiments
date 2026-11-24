@@ -205,7 +205,9 @@ field as its default.
   of it: placement, display, lock, layers, behaviours; its verbs are the
   menu's, not buttons here) and **Built from**
   (its source as a row, version, the build's summary, Rebuild, Pinned and
-  its params as fields). No document is mounted: each is a row with Open
+  its params as fields: its provider's for its source, `params(doc)`
+  included, from the load state, so an object not shown, which doesn't
+  load, has only the metadata's). No document is mounted: each is a row with Open
   Editor and Dock. While editing it opens on the first selection and stays
   open.
 - **The outline** (`outline.js`): the focus doc's tree; rows select, drag,
