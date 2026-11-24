@@ -1195,3 +1195,21 @@ texel under it and every one beside it is clear (`src/alpha-pick.js`; the
 ring of neighbours keeps a thin stroke clickable). The alpha is read once
 per texture image, at most 2048 texels a side, and kept; what can't be read
 (not loaded yet, no canvas) counts as drawn.
+
+### 2026-11-24 — Pictures recoloured for the viewer's colour scheme
+
+A drawing is built once, light, for every viewer; on a dark scene its black
+ink nearly vanished. A material may now say what its texture was drawn for,
+`extras.colorScheme: "light" | "dark"` (the kit's encoder, v5, writes a
+primitive's `materialExtras`), and a viewer of the other scheme sees it
+recoloured in its shader (`src/scheme-recolour.js`): in OKLab, what has
+little chroma has its lightness mirrored, L' = min(1.25 − L, 1), as
+Chromium's auto dark mode does in Lab, and what is saturated keeps its
+lightness, chroma 0.03 to 0.16 blending the two. Fitted against tldraw's
+own light and dark palettes, which keep saturated strokes and flip ink and
+pale fills: median ΔE·100 4.9 over its 60 shape colours, where Chromium's
+flip alone darkens yellow and the light colours (ΔE 22–55). One uniform per
+scheme per viewport, set as the theme is read, so switching schemes needs no
+recompile; the patch goes in before the GLB's shaders compile. Checked in
+headless Chromium (SwiftShader): the GLSL compiles and gives the JS mirror's
+colours.

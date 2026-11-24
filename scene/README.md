@@ -189,6 +189,13 @@ CONVENTIONS.md.
 - **Textures:** a material that shows its texture's alpha (`blend`, or a
   mask) is picked only where its texels are drawn: a click on a clear one
   goes through to what lies behind (`src/alpha-pick.js`).
+- **Pictures and colour schemes:** a material's `extras.colorScheme`
+  (`"light"` or `"dark"`) says its texture was drawn for that background. A
+  viewer whose theme is the other scheme sees it recoloured: in OKLab,
+  neutral colours (ink, greys, pale fills) have their lightness mirrored and
+  saturated ones keep theirs (`src/scheme-recolour.js`). For drawings and
+  diagrams, not photos. The kit's encoder writes it as a primitive's
+  `materialExtras`.
 - **Legend:** `extras.legend = { title, unit, min, max, stops }` on a mesh,
   2–32 `#rrggbb` stops, draws a colour bar.
 

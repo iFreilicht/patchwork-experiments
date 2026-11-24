@@ -251,3 +251,20 @@ describe("v4 additions: uvs and textures", () => {
     expect(json.meshes[0].primitives[0].material).toBeUndefined();
   });
 });
+
+describe("v5 additions: material extras", () => {
+  it("writes materialExtras as the material's extras, which GLTFLoader puts in its userData", async () => {
+    const bytes = encodeGLB({ meshes: [{ ...quad(), materialExtras: { colorScheme: "light" } }] });
+    const { json } = parseGLB(bytes);
+    expect(json.materials).toEqual([{ pbrMetallicRoughness: { baseColorFactor: [1, 1, 1, 1], metallicFactor: 0, roughnessFactor: 0.8 }, doubleSided: true, extras: { colorScheme: "light" } }]);
+    const gltf = await load(bytes);
+    let userData = null;
+    gltf.scene.traverse((o) => o.material && (userData = o.material.userData));
+    expect(userData).toEqual({ colorScheme: "light" });
+  });
+
+  it("keeps materials apart that differ only in their extras", () => {
+    const { json } = parseGLB(encodeGLB({ meshes: [{ ...quad(), color: "#ff0000" }, { ...quad(), color: "#ff0000", materialExtras: { colorScheme: "dark" } }] }));
+    expect(json.materials).toHaveLength(2);
+  });
+});

@@ -44,6 +44,7 @@ import { prepareGLB } from "../gltf-content.js";
 import { layerShown, layerStates } from "../layers.js";
 import { buildBVH, ensureBVH, installLazyBVH, triangleCount, wantsBVH } from "../pick-accel.js";
 import { opaqueAt } from "../alpha-pick.js";
+import { adaptToScheme, drawnFor } from "../scheme-recolour.js";
 import { defaultSnapRadius } from "../carry-rules.js";
 import { onThemeChange, resolveCssColor, colorSchemeOf } from "../theme.js";
 import { createRides } from "./ride.js";
@@ -951,6 +952,11 @@ export class Viewport {
 
   /** Everything that doesn't need WebGL or a scene graph. The labels exist even when WebGL doesn't, so syncing them is always safe. */
   initState() {
+    /**
+     * scheme → the uniform every picture drawn for it shares: 1 while the
+     * viewer's scheme is the other one, so it's recoloured (../scheme-recolour.js)
+     */
+    this.schemeUniforms = { light: { value: 0 }, dark: { value: 0 } };
     /** group id → the ids of the objects in it (at any depth): a group has no node of its own */
     this.groupMembers = new Map(); // the union of groupSets
     this.groupSets = new Map(); // stage number → its groups' members
@@ -1085,6 +1091,12 @@ export class Viewport {
     // native controls (selects, checkboxes) in the stage follow Patchwork's theme, not the OS's
     const scheme = colorSchemeOf(this.theme.bg);
     if (this.themeRoot?.style && this.themeRoot.style.colorScheme !== scheme) this.themeRoot.style.colorScheme = scheme;
+    this.applyScheme(scheme);
+  }
+
+  /** The viewer's colour scheme ("light" or "dark"): a picture drawn for the other one is recoloured for it. */
+  applyScheme(scheme) {
+    for (const [drawn, u] of Object.entries(this.schemeUniforms)) u.value = drawn !== scheme ? 1 : 0;
   }
 
   /** What shows where nothing is drawn: the theme's background, or fog's colour when there's fog and no sky. */
@@ -1776,6 +1788,8 @@ export class Viewport {
     const stale = () => entry.gen !== gen || this.objects.get(id) !== entry || !this.ok;
     const t0 = performance.now();
     const prepared = await prepareGLB(bytes);
+    // before its shaders compile: a picture drawn for one scheme recolours itself in the other
+    for (const m of prepared.materials) if (drawnFor(m)) adaptToScheme(m, this.schemeUniforms[drawnFor(m)]);
     const t1 = performance.now();
     if (stale()) {
       disposeObject(prepared.content);

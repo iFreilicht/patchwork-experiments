@@ -485,6 +485,17 @@ describe("the camera rig", () => {
   });
 });
 
+describe("pictures drawn for a colour scheme", () => {
+  it("turns on the recolouring of pictures drawn for the other scheme", () => {
+    const vp = headless();
+    // the default theme is light: what's drawn for dark is recoloured
+    vp.readTheme();
+    expect([vp.schemeUniforms.light.value, vp.schemeUniforms.dark.value]).toEqual([0, 1]);
+    vp.applyScheme("dark");
+    expect([vp.schemeUniforms.light.value, vp.schemeUniforms.dark.value]).toEqual([1, 0]);
+  });
+});
+
 describe("picking", () => {
   it("picks the nearest shown object in port px, with a normal facing the eye", () => {
     const vp = headless();
