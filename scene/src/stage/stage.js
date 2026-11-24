@@ -43,6 +43,7 @@
 //     work, ambients (./ambients.js).
 
 import * as THREE from "three";
+import { wideLines } from "../wide-lines.js";
 import * as patchworkPlugins from "@inkandswitch/patchwork-plugins";
 import { createAtom, assoc } from "./atom.js";
 import { createHost, updateAll } from "./host.js";
@@ -1475,6 +1476,7 @@ export function createStage({ handle: given, view, n, path = [], frame = () => n
 
       // drawing
       THREE,
+      wideLines,
       world: ({ onTop = false } = {}) => {
         if (!live()) return new THREE.Group();
         const group = scope.worldLayer(id, { onTop });

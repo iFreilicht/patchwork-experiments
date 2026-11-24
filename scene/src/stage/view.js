@@ -24,6 +24,7 @@
 // api.focus() is the focus stage's api for it (stage.js facetFor).
 
 import * as THREE from "three";
+import { wideLines } from "../wide-lines.js";
 import * as patchworkPlugins from "@inkandswitch/patchwork-plugins";
 import { createAnnouncer } from "./announce.js";
 import css from "./stage.css?inline";
@@ -1179,6 +1180,7 @@ export function createView(element, { url = "scene", openStage = null } = {}) {
       },
       repo,
       THREE,
+      wideLines,
       registry: getRegistry,
       /** the element the canvas fills, and the view's root (for DOM listeners: drops, paste, keys) */
       port,

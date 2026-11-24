@@ -1247,3 +1247,13 @@ and may lie behind the eye, since the eye stands where perspective's would;
 and three starts an orthographic ray on the eye's plane, so a port ray starts
 at the near plane instead, its hits' distances still from the eye's plane.
 Vertex snapping culls and searches its BVH by the projection too.
+
+### 2026-11-24 — Wide lines for plugins
+
+WebGL draws its own lines one pixel wide, whatever `linewidth` asks for, so
+a plugin that draws edges or outlines wider needs three's wide lines
+(`LineSegmentsGeometry`, `LineMaterial`, `LineSegments2`). It couldn't use
+its own copy of three's: the scene's renderer draws only objects made with
+the scene's three.js. patchwork-cad's editor copied the three files and
+rebuilt them over `api.THREE`. Both apis now carry the viewport's own as
+`api.wideLines` beside `api.THREE` (`src/wide-lines.js`).

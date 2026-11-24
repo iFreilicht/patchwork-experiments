@@ -78,7 +78,7 @@ stage's extensions', in that stage's frame and context; `update` on its flush.
 
 | Member | |
 |---|---|
-| as the extension `api`'s | `id`, `signal`, `repo`, `THREE`, `registry`, `port`, `root`, `packages`, `overlay`, `edge`, `style`, `listen`, `cursor`, `popover`, `loop`, `afterRender`, `schedule`, `invalidate`, `body`, `now`, `after`, `frame`; `camera`, `pick`, `ray`, `project` in the world |
+| as the extension `api`'s | `id`, `signal`, `repo`, `THREE`, `wideLines`, `registry`, `port`, `root`, `packages`, `overlay`, `edge`, `style`, `listen`, `cursor`, `popover`, `loop`, `afterRender`, `schedule`, `invalidate`, `body`, `now`, `after`, `frame`; `camera`, `pick`, `ray`, `project` in the world |
 | `url`, `viewer`, `session`, `use(name)` | the outermost's url; a view plugin's service, else the focus stage's |
 | `view` | the value whole (`selected`, `hovered`, `focus` as paths; `packages`, `arrived`); `step(ev)`, `set(value)` (its own) |
 | `hand(spec)`, `putDown(tool?)`, `offerWidget(type, ev)`, `wantPointer()` | "Hands"; events in the world, each hit with its `path`; `putDown` one of `held`, else the topmost |
@@ -109,7 +109,7 @@ Each extension's own; what it acquires through it goes when it stops.
 | `camera` | `{ get, set, frame(box), hold, ride, touched, watch, onEnd }`; `get()` → `{ position, target, fov, up, projection }`, `set` takes those (and `quaternion`, `near`, `far`). **Projection**: `"perspective"` or `"orthographic"`, Look's (any other body looks in perspective); orthographic shows at the target what perspective shows from the same eye, a zoom moves the eye, its near plane may lie behind it, and its rays (`ray`, `pick`) are parallel and start there, distances still measured from the eye's plane. **Hold**: orbit off. **Riding**: `ride(id, { turn, rise, tilt, at })`, the top body's, else the latest base ride (I8). **Saving**: the viewer's, else `view.start.home` |
 | `body`, `hold`, `popover(close)`, `context(hit?)`, `attention()`, `look()` | "Bodies", "Hands"; `context` is `{ scene, local, view, from, reach, hit, distance(target) }` |
 | `collect(name)`, `run(inv)` | this stage's offers, tagged `stage`; run in the stage `inv.stage` names (EDITOR.md, "A command") |
-| `THREE`, `world({ onTop? })`, `labels()`, `owners()` | a `Group` whose meshes are its widgets; `{ set([{ key, text, on?, offset?, rank? }]) }`, `on` an object's drawn frame; who draws in this stage, frozen, in running (layering) order: `{ layers: [{ ext, onTop, meshes }], labels: [{ ext, key, text, on }], display: { [id]: [{ ext, fields }] } }` |
+| `THREE`, `wideLines`, `world({ onTop? })`, `labels()`, `owners()` | the scene's three.js, which whatever it draws must be made with, and its wide lines (`{ LineSegmentsGeometry, LineMaterial, LineSegments2 }`, `src/wide-lines.js`: WebGL's own are one pixel wide); a `Group` whose meshes are its widgets; `{ set([{ key, text, on?, offset?, rank? }]) }`, `on` an object's drawn frame; who draws in this stage, frozen, in running (layering) order: `{ layers: [{ ext, onTop, meshes }], labels: [{ ext, key, text, on }], display: { [id]: [{ ext, fields }] } }` |
 | `overlay()`, `edge(side)`, `style`, `listen`, `cursor`, `extent`, `invalidate`, `schedule`, `port`, `root` | DOM over or beside the canvas |
 
 ## `instance`

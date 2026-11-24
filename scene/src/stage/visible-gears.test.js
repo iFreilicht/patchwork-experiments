@@ -257,6 +257,17 @@ describe("write provenance", () => {
   });
 });
 
+describe("wideLines: the scene's wide lines, for what an extension draws", () => {
+  it("are made with the scene's three.js and count as meshes of its layer", async () => {
+    const { a } = await mount();
+    const { LineSegments2, LineSegmentsGeometry, LineMaterial } = a.wideLines;
+    const line = new LineSegments2(new LineSegmentsGeometry().setPositions([0, 0, 0, 1, 0, 0]), new LineMaterial({ linewidth: 3 }));
+    expect(line).toBeInstanceOf(a.THREE.Mesh);
+    a.world().add(line);
+    expect(a.owners().layers.find((l) => l.ext === "t.a").meshes).toBe(1);
+  });
+});
+
 describe("settled() says why an extension failed", () => {
   it("errors: each failed extension's message", async () => {
     vi.spyOn(console, "warn").mockImplementation(() => {});
